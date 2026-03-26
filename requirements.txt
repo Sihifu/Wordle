@@ -1,0 +1,6 @@
+numpy>=1.26
+rich>=13.7
+click>=8.1
+tqdm>=4.66
+wordfreq>=3.0
+pytest>=8.0
