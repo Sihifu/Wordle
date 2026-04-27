@@ -1,11 +1,11 @@
 """
 Wordle simulator (environment).
 
-WordleGame holds the precomputed pattern matrix and the word list.
-Every word is both a valid guess and a valid answer — there is no
-separate guess vocabulary.
+WordleGame owns a PatternMatrix and uses it as the single source of truth
+for the vocabulary, word indices, and pattern lookups.
+Every word is both a valid guess and a valid answer.
 
-The simulator knows the secret word; the agent only sees a GameState.
+The simulator knows the secret word; the agent only ever sees a GameState.
 
 Typical usage
 -------------
@@ -25,23 +25,17 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from .pattern import build_pattern_matrix
 from .state import GameState
-from .words import WordDistribution, load_words
+from .words import WordDistribution
+from .pattern import PatternMatrix
 
 
 class WordleGame:
-    def __init__(
-        self,
-        words: list[str],
-        pattern_matrix: np.ndarray,
-        max_guesses: int = 6,
-    ):
-        self.words = words                         # single vocabulary: guess = answer
-        self.pattern_matrix = pattern_matrix       # shape (n_words, n_words)
+    def __init__(self, pm: PatternMatrix, max_guesses: int = 6):
+        self.pm = pm
+        self.words = pm.words
         self.max_guesses = max_guesses
-
-        self._word_to_idx: dict[str, int] = {w: i for i, w in enumerate(words)}
+        self._word_to_idx = pm._dist._word_to_idx
 
     # ------------------------------------------------------------------
     # Construction
@@ -52,33 +46,21 @@ class WordleGame:
         cls,
         min_zipf: Optional[float] = None,
         max_guesses: int = 6,
-        verbose: bool = True,
-    ) -> "WordleGame":
+    ) -> WordleGame:
         """
-        Build a WordleGame by loading words from wordfreq and
-        precomputing the full (n_words × n_words) pattern matrix.
+        Build a WordleGame from the wordfreq corpus.
 
         Parameters
         ----------
         min_zipf : float, optional
-            Minimum Zipf frequency threshold.  Defaults to words.MIN_ZIPF.
+            Minimum Zipf frequency threshold.  Defaults to WordDistribution.MIN_ZIPF.
         """
-        from .words import MIN_ZIPF
-        threshold = min_zipf if min_zipf is not None else MIN_ZIPF
-
-        if verbose:
-            print(f"Loading words from wordfreq (Zipf >= {threshold})…")
-        words = load_words(threshold)
-
-        if verbose:
-            print(f"  {len(words)} words. Building {len(words)}×{len(words)} pattern matrix…")
-
-        matrix = build_pattern_matrix(words, words)
-
-        if verbose:
-            print(f"  Done. Matrix shape: {matrix.shape}")
-
-        return cls(words, matrix, max_guesses)
+        dist = (
+            WordDistribution.from_wordfreq(min_zipf)
+            if min_zipf is not None
+            else WordDistribution.default()
+        )
+        return cls(PatternMatrix(dist), max_guesses)
 
     # ------------------------------------------------------------------
     # Game lifecycle
@@ -114,7 +96,7 @@ class WordleGame:
                 raise ValueError(f"'{word}' is not in the word list.")
             target = word
         else:
-            dist = distribution or WordDistribution.uniform(self.words)
+            dist = distribution or WordDistribution(self.words)
             target = dist.sample(rng)
 
         initial_state = GameState(
@@ -151,11 +133,8 @@ class WordleGame:
         if guess not in self._word_to_idx:
             raise ValueError(f"'{guess}' is not a valid word.")
 
-        guess_idx = self._word_to_idx[guess]
-        target_idx = self._word_to_idx[target]
-        pattern = int(self.pattern_matrix[guess_idx, target_idx])
-
-        new_state = state.update(guess, guess_idx, pattern, self.pattern_matrix)
+        pattern = self.pm.get(guess, target)
+        new_state = state.update(guess, pattern, self.pm)
         return new_state, pattern, new_state.done
 
     # ------------------------------------------------------------------
@@ -166,7 +145,4 @@ class WordleGame:
         return word in self._word_to_idx
 
     def __repr__(self) -> str:
-        return (
-            f"WordleGame(words={len(self.words)}, "
-            f"max_guesses={self.max_guesses})"
-        )
+        return f"WordleGame(words={len(self.words)}, max_guesses={self.max_guesses})"

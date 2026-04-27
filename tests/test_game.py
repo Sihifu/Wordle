@@ -3,7 +3,7 @@
 import pytest
 import numpy as np
 from wordle.game import WordleGame
-from wordle.pattern import build_pattern_matrix, PATTERN_SOLVED
+from wordle.pattern import PatternMatrix, PATTERN_SOLVED
 from wordle.words import WordDistribution
 from wordle.policy import RandomPolicy
 
@@ -15,10 +15,11 @@ from wordle.policy import RandomPolicy
 WORDS = ["crane", "slate", "audio", "stale", "groan"]
 
 @pytest.fixture(scope="module")
-def tiny_game():
+def tiny_game(tmp_path_factory):
     """A 5-word game (every word is both a valid guess and a valid answer)."""
-    matrix = build_pattern_matrix(WORDS, WORDS)
-    return WordleGame(WORDS, matrix, max_guesses=6)
+    cache = tmp_path_factory.mktemp("cache")
+    pm = PatternMatrix(WordDistribution(WORDS), cache_dir=cache)
+    return WordleGame(pm, max_guesses=6)
 
 
 # ---------------------------------------------------------------------------
@@ -42,7 +43,7 @@ class TestNewGame:
         assert target in tiny_game.words
 
     def test_custom_distribution(self, tiny_game):
-        dist = WordDistribution(["crane", "slate"], np.array([1.0, 0.0]))
+        dist = WordDistribution({"crane": 1.0, "slate": 0.0})
         _, target = tiny_game.new_game(distribution=dist)
         assert target == "crane"
 

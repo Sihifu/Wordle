@@ -1,5 +1,5 @@
-from .game import WordleGame
-from .state import GameState
-from .words import WordDistribution, load_words
-from .policy import Policy, RandomPolicy, HumanPolicy
-from .pattern import compute_pattern, decode_pattern, PATTERN_SOLVED
+from wordle.game import WordleGame
+from wordle.state import GameState
+from wordle.words import WordDistribution
+from wordle.policy import Policy, RandomPolicy, HumanPolicy
+from wordle.pattern import compute_pattern, decode_pattern, PATTERN_SOLVED, PatternMatrix

@@ -1,7 +1,9 @@
-"""Tests for pattern computation correctness."""
+"""Tests for pattern computation and PatternMatrix."""
 
 import pytest
-from wordle.pattern import compute_pattern, decode_pattern, build_pattern_matrix, PATTERN_SOLVED
+import numpy as np
+from wordle.pattern import compute_pattern, decode_pattern, PatternMatrix, PATTERN_SOLVED
+from wordle.words import WordDistribution
 
 
 # ---------------------------------------------------------------------------
@@ -13,23 +15,17 @@ class TestComputePattern:
         assert compute_pattern("crane", "crane") == PATTERN_SOLVED
 
     def test_all_grey(self):
-        # No letters in common
-        assert compute_pattern("moist", "carve") == 0  # 00000 in base-3
+        assert compute_pattern("moist", "carve") == 0
 
     def test_all_yellow(self):
-        # All letters present but all wrong positions: 11111 = 1+3+9+27+81 = 121
         assert compute_pattern("abcde", "eabcd") == 1 * 81 + 1 * 27 + 1 * 9 + 1 * 3 + 1
 
     def test_mixed(self):
-        # "crane" vs "crate": c✓ r✓ a✓ n✗ e✓ → green green green grey green
-        # = 2*81 + 2*27 + 2*9 + 0*3 + 2 = 162+54+18+0+2 = 236
+        # crane vs crate: c✓ r✓ a✓ n✗ e✓ → 2 2 2 0 2 = 236
         assert compute_pattern("crane", "crate") == 2 * 81 + 2 * 27 + 2 * 9 + 0 * 3 + 2
 
     def test_duplicate_letter_in_guess_one_in_answer(self):
-        # guess "sleep", answer "creep": s,l,e,e,p vs c,r,e,e,p
-        # Green pass: pos2 e==e, pos3 e==e, pos4 p==p → pool = [c,r,None,None,None]
-        # Yellow pass: s not in pool → grey; l not in pool → grey
-        # Result: grey grey green green green
+        # sleep vs creep: s,l grey; e,e,p all green
         p = compute_pattern("sleep", "creep")
         digits = []
         tmp = p
@@ -40,11 +36,7 @@ class TestComputePattern:
         assert digits == [0, 0, 2, 2, 2]
 
     def test_duplicate_letter_both_present(self):
-        # guess "steel", answer "heels": s,t,e,e,l vs h,e,e,l,s
-        # Green pass: pos2 e==e → pool = [h,e,None,l,s]
-        # Yellow pass: pos0 s→yellow (pool[4]), pos1 t→grey,
-        #              pos3 e→yellow (pool[1]), pos4 l→yellow (pool[3])
-        # Result: yellow grey green yellow yellow
+        # steel vs heels: s=yellow, t=grey, e=green, e=yellow, l=yellow
         p = compute_pattern("steel", "heels")
         digits = []
         tmp = p
@@ -67,47 +59,83 @@ class TestDecodePattern:
         assert decode_pattern(0) == "⬛⬛⬛⬛⬛"
 
     def test_roundtrip(self):
-        # Pattern with one yellow at pos 0: 1*81 = 81 → "🟨⬛⬛⬛⬛"
-        # Each emoji is a single Unicode code point, so normal str indexing works.
-        result = decode_pattern(81)
+        result = decode_pattern(81)   # 🟨⬛⬛⬛⬛
         assert result[0] == "🟨"
-        assert result[1:] == "⬛⬛⬛⬛"  # positions 1-4 are grey
+        assert result[1:] == "⬛⬛⬛⬛"
 
     def test_length(self):
-        # decode_pattern always returns exactly 5 emoji characters
-        import unicodedata
         for p in [0, 81, 121, 242]:
-            s = decode_pattern(p)
-            # Count grapheme clusters (each emoji = 1 grapheme)
-            assert len(s.splitlines()[0]) == 5  # 5 emoji joined
+            assert len(decode_pattern(p)) == 5
 
 
 # ---------------------------------------------------------------------------
-# build_pattern_matrix
+# PatternMatrix
 # ---------------------------------------------------------------------------
 
-class TestBuildPatternMatrix:
-    def test_shape(self):
-        guesses = ["crane", "slate", "audio"]
-        answers = ["crane", "slate"]
-        m = build_pattern_matrix(guesses, answers)
-        assert m.shape == (3, 2)
+WORDS = ["crane", "slate", "audio", "groan", "stale"]
 
-    def test_diagonal_solved(self):
-        words = ["crane", "slate", "audio"]
-        m = build_pattern_matrix(words, words)
-        for i in range(len(words)):
-            assert m[i, i] == PATTERN_SOLVED
 
-    def test_dtype(self):
-        import numpy as np
-        m = build_pattern_matrix(["crane"], ["crane"])
-        assert m.dtype == np.uint8
+@pytest.fixture(scope="module")
+def pm(tmp_path_factory):
+    cache = tmp_path_factory.mktemp("cache")
+    return PatternMatrix(WordDistribution(WORDS), cache_dir=cache)
 
-    def test_values_match_compute_pattern(self):
-        guesses = ["crane", "slate"]
-        answers = ["crane", "audio", "stale"]
-        m = build_pattern_matrix(guesses, answers)
-        for i, g in enumerate(guesses):
-            for j, a in enumerate(answers):
-                assert int(m[i, j]) == compute_pattern(g, a)
+
+class TestPatternMatrixConstruction:
+    def test_shape(self, pm):
+        assert pm.matrix.shape == (len(WORDS), len(WORDS))
+
+    def test_dtype(self, pm):
+        assert pm.matrix.dtype == np.uint8
+
+    def test_diagonal_solved(self, pm):
+        for i in range(len(WORDS)):
+            assert pm.matrix[i, i] == PATTERN_SOLVED
+
+    def test_len(self, pm):
+        assert len(pm) == len(WORDS)
+
+    def test_cache_hit(self, pm):
+        pm2 = PatternMatrix(WordDistribution(WORDS), cache_dir=pm._cache_dir)
+        assert np.array_equal(pm2.matrix, pm.matrix)
+
+
+class TestPatternMatrixLookup:
+    def test_get_matches_compute_pattern(self, pm):
+        for g in WORDS:
+            for a in WORDS:
+                assert pm.get(g, a) == compute_pattern(g, a)
+
+    def test_contains_true(self, pm):
+        assert "crane" in pm
+
+    def test_contains_false(self, pm):
+        assert "xyzzy" not in pm
+
+
+class TestPatternMatrixExtend:
+    def test_extended_shape(self, pm):
+        ext = pm.extend(["world"])
+        assert ext.matrix.shape == (len(WORDS) + 1, len(WORDS) + 1)
+
+    def test_existing_block_unchanged(self, pm):
+        ext = pm.extend(["world"])
+        n = len(WORDS)
+        assert np.array_equal(ext.matrix[:n, :n], pm.matrix)
+
+    def test_new_entries_correct(self, pm):
+        ext = pm.extend(["world"])
+        for i, g in enumerate(ext.words):
+            for j, a in enumerate(ext.words):
+                assert int(ext.matrix[i, j]) == compute_pattern(g, a)
+
+    def test_duplicate_ignored(self, pm):
+        ext = pm.extend(["crane"])
+        assert ext is pm
+
+    def test_multiple_new_words(self, pm):
+        ext = pm.extend(["world", "chess"])
+        assert ext.matrix.shape == (len(WORDS) + 2, len(WORDS) + 2)
+        for i, g in enumerate(ext.words):
+            for j, a in enumerate(ext.words):
+                assert int(ext.matrix[i, j]) == compute_pattern(g, a)

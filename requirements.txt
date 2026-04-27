@@ -4,3 +4,4 @@ click>=8.1
 tqdm>=4.66
 wordfreq>=3.0
 pytest>=8.0
+ipykernel
