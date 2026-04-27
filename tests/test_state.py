@@ -1,27 +1,24 @@
 """Tests for GameState immutability, transitions, and derived properties."""
 
 import pytest
-import numpy as np
 from wordle.state import GameState
-from wordle.pattern import PATTERN_SOLVED, build_pattern_matrix
+from wordle.pattern import PATTERN_SOLVED, PatternMatrix
+from wordle.words import WordDistribution
+
+
+WORDS = ["crane", "slate", "audio", "stale"]
+
+
+@pytest.fixture(scope="module")
+def pm(tmp_path_factory):
+    cache = tmp_path_factory.mktemp("cache")
+    return PatternMatrix(WordDistribution(WORDS), cache_dir=cache)
 
 
 @pytest.fixture
-def small_game():
-    """A minimal 3-answer game for fast testing."""
-    answers = ["crane", "slate", "audio"]
-    guesses = ["crane", "slate", "audio", "stale"]
-    matrix = build_pattern_matrix(guesses, answers)
-    guess_idx = {g: i for i, g in enumerate(guesses)}
-    answer_idx = {a: i for i, a in enumerate(answers)}
-    return answers, guesses, matrix, guess_idx, answer_idx
-
-
-@pytest.fixture
-def initial_state(small_game):
-    answers, guesses, matrix, *_ = small_game
+def initial_state(pm):
     return GameState(
-        candidates=frozenset(range(len(answers))),
+        candidates=frozenset(range(len(pm))),
         history=(),
         max_guesses=6,
     )
@@ -32,9 +29,8 @@ class TestInitialState:
         assert initial_state.guess_count == 0
         assert initial_state.history == ()
 
-    def test_all_candidates(self, initial_state, small_game):
-        answers = small_game[0]
-        assert initial_state.remaining == len(answers)
+    def test_all_candidates(self, initial_state, pm):
+        assert initial_state.remaining == len(pm)
 
     def test_not_done(self, initial_state):
         assert not initial_state.done
@@ -43,69 +39,43 @@ class TestInitialState:
 
 
 class TestStateUpdate:
-    def test_update_returns_new_instance(self, initial_state, small_game):
-        _, guesses, matrix, guess_idx, answer_idx = small_game
-        g = "crane"
-        gi = guess_idx[g]
-        pattern = int(matrix[gi, answer_idx["crane"]])
-        new_state = initial_state.update(g, gi, pattern, matrix)
+    def test_update_returns_new_instance(self, initial_state, pm):
+        new_state = initial_state.update("crane", PATTERN_SOLVED, pm)
         assert new_state is not initial_state
 
-    def test_immutability(self, initial_state, small_game):
-        _, guesses, matrix, guess_idx, answer_idx = small_game
-        g = "slate"
-        gi = guess_idx[g]
-        pattern = int(matrix[gi, answer_idx["crane"]])
-        _ = initial_state.update(g, gi, pattern, matrix)
-        # Original state must be unchanged
+    def test_immutability(self, initial_state, pm):
+        pattern = pm.get("slate", "crane")
+        _ = initial_state.update("slate", pattern, pm)
         assert initial_state.guess_count == 0
-        assert initial_state.remaining == 3
+        assert initial_state.remaining == len(pm)
 
-    def test_candidates_filtered(self, initial_state, small_game):
-        _, guesses, matrix, guess_idx, answer_idx = small_game
-        # Guess "crane" against target "crane" → PATTERN_SOLVED
-        g = "crane"
-        gi = guess_idx[g]
-        pattern = PATTERN_SOLVED
-        new_state = initial_state.update(g, gi, pattern, matrix)
-        # Only "crane" itself matches all-green
+    def test_candidates_filtered(self, initial_state, pm):
+        new_state = initial_state.update("crane", PATTERN_SOLVED, pm)
         assert new_state.remaining == 1
 
-    def test_history_appended(self, initial_state, small_game):
-        _, guesses, matrix, guess_idx, answer_idx = small_game
-        g = "slate"
-        gi = guess_idx[g]
-        pattern = int(matrix[gi, answer_idx["crane"]])
-        new_state = initial_state.update(g, gi, pattern, matrix)
+    def test_history_appended(self, initial_state, pm):
+        pattern = pm.get("slate", "crane")
+        new_state = initial_state.update("slate", pattern, pm)
         assert len(new_state.history) == 1
-        assert new_state.history[0] == (g, pattern)
+        assert new_state.history[0] == ("slate", pattern)
 
-    def test_solved_when_all_green(self, initial_state, small_game):
-        _, guesses, matrix, guess_idx, answer_idx = small_game
-        g = "crane"
-        gi = guess_idx[g]
-        new_state = initial_state.update(g, gi, PATTERN_SOLVED, matrix)
+    def test_solved_when_all_green(self, initial_state, pm):
+        new_state = initial_state.update("crane", PATTERN_SOLVED, pm)
         assert new_state.solved
         assert new_state.done
 
 
 class TestFailure:
-    def test_failed_after_max_guesses(self, small_game):
-        answers, guesses, matrix, guess_idx, answer_idx = small_game
-        # Use a non-answer guess that never solves
+    def test_failed_after_max_guesses(self, pm):
         state = GameState(
-            candidates=frozenset(range(len(answers))),
+            candidates=frozenset(range(len(pm))),
             history=(),
             max_guesses=2,
         )
-        g = "stale"
-        gi = guess_idx[g]
-        # Two non-solving guesses
+        pattern = pm.get("stale", "crane")
+        assert pattern != PATTERN_SOLVED
         for _ in range(2):
-            pattern = int(matrix[gi, answer_idx["crane"]])
-            assert pattern != PATTERN_SOLVED
-            state = state.update(g, gi, pattern, matrix)
-
+            state = state.update("stale", pattern, pm)
         assert state.failed
         assert state.done
         assert not state.solved
@@ -116,12 +86,8 @@ class TestHashability:
         d = {initial_state: "value"}
         assert d[initial_state] == "value"
 
-    def test_equal_states_same_hash(self, initial_state, small_game):
-        _, guesses, matrix, guess_idx, answer_idx = small_game
-        g = "crane"
-        gi = guess_idx[g]
-        pattern = PATTERN_SOLVED
-        s1 = initial_state.update(g, gi, pattern, matrix)
-        s2 = initial_state.update(g, gi, pattern, matrix)
+    def test_equal_states_same_hash(self, initial_state, pm):
+        s1 = initial_state.update("crane", PATTERN_SOLVED, pm)
+        s2 = initial_state.update("crane", PATTERN_SOLVED, pm)
         assert s1 == s2
         assert hash(s1) == hash(s2)

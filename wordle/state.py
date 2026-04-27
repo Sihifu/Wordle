@@ -22,9 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Tuple
 
-import numpy as np
-
-from .pattern import PATTERN_SOLVED
+from wordle.pattern import PATTERN_SOLVED, PatternMatrix
 
 
 @dataclass(frozen=True)
@@ -64,22 +62,17 @@ class GameState:
     # State transition
     # ------------------------------------------------------------------
 
-    def update(
-        self,
-        guess: str,
-        guess_idx: int,
-        pattern: int,
-        pattern_matrix: np.ndarray,
-    ) -> "GameState":
+    def update(self, guess: str, pattern: int, pm: PatternMatrix) -> GameState:
         """
         Return the successor state after observing *pattern* for *guess*.
 
         Filters `candidates` to only those words whose pattern against
         *guess* matches the observed pattern.
         """
+        gi = pm._dist._word_to_idx[guess]
         new_candidates = frozenset(
             c for c in self.candidates
-            if pattern_matrix[guess_idx, c] == pattern
+            if pm.matrix[gi, c] == pattern
         )
         return replace(
             self,
@@ -96,6 +89,54 @@ class GameState:
 
     def last_pattern(self) -> int | None:
         return self.history[-1][1] if self.history else None
+
+    def show(self) -> None:
+        """
+        Print the game board as coloured Wordle tiles, e.g.:
+
+            C R A N E
+            ─────────
+            S L A T E   ⬛🟨🟩⬛🟩
+            C R A N E   🟩🟩🟩🟩🟩  ✓
+
+        Each letter is rendered on its colour background (green / yellow / grey),
+        followed by the emoji row for quick scanning.
+        Prints a status line with guess count and remaining candidates.
+        """
+        from rich.console import Console
+        from rich.text import Text
+
+        _BG = {0: "white on grey23", 1: "black on yellow3", 2: "black on green"}
+        _EMOJI = {0: "⬛", 1: "🟨", 2: "🟩"}
+
+        console = Console()
+        console.print()
+
+        if not self.history:
+            console.print("  [dim](no guesses yet)[/dim]")
+        else:
+            for guess, pattern in self.history:
+                digits = []
+                p = pattern
+                for _ in range(5):
+                    digits.append(p % 3)
+                    p //= 3
+                digits.reverse()
+
+                row = Text("  ")
+                for letter, d in zip(guess.upper(), digits):
+                    row.append(f" {letter} ", style=_BG[d])
+                row.append("  " + "".join(_EMOJI[d] for d in digits))
+                console.print(row)
+
+        if self.solved:
+            status = f"[green]Solved in {self.guess_count} guess{'es' if self.guess_count != 1 else ''}[/green]"
+        elif self.failed:
+            status = "[red]Failed — out of guesses[/red]"
+        else:
+            status = f"Guess {self.guess_count + 1}/{self.max_guesses} — [cyan]{self.remaining}[/cyan] candidates remaining"
+
+        console.print(f"\n  {status}\n")
 
     def __repr__(self) -> str:
         return (

@@ -1,16 +1,18 @@
 """
-Word lists and probability distributions over answers.
+Word vocabulary and probability distribution over answers.
 
-Word lists are sourced from `wordfreq`, which provides:
-  - A large English lexicon with corpus-based frequency estimates.
-  - `zipf_frequency(word, lang)`: Zipf-scale frequency (0–7, higher = more common).
+Word lists are sourced from `wordfreq`:
+  - `zipf_frequency(word, lang)`: Zipf-scale score (0–7, higher = more common).
 
-Design: one list, no distinction between answers and guesses
-------------------------------------------------------------
-Every word in the list is both a valid guess *and* a valid answer.
-`load_words()` is the single entry point; `MIN_ZIPF` controls vocabulary size.
-Zipf 4.0 ≈ top ~3 000 most common English words, which gives a clean,
-recognisable set comparable to the original Wordle answer list.
+Design: one list, every word is both a valid guess and a valid answer.
+`WordDistribution` is the single class; `from_wordfreq()` is the main
+entry point for loading the vocabulary from the corpus.
+
+Zipf thresholds (measured):
+  4.0 →    12 words   (too few)
+  3.0 →   223 words
+  2.0 → 1 121 words
+  1.0 → 3 527 words   ← default (MIN_ZIPF)
 """
 
 from __future__ import annotations
@@ -19,82 +21,137 @@ import numpy as np
 from wordfreq import get_frequency_dict, zipf_frequency
 from typing import List, Optional
 
-# Zipf 4.0 ≈ top ~3 000 most common 5-letter English words.
-# Raise to shrink the vocabulary; lower to expand it.
-MIN_ZIPF: float = 4.0
-
-
-def load_words(min_zipf: float = MIN_ZIPF) -> List[str]:
-    """
-    Return sorted 5-letter lowercase English words with Zipf score >= min_zipf.
-
-    Every word in this list is both a valid guess and a valid answer.
-    """
-    freq_dict = get_frequency_dict("en", wordlist="best")
-    return sorted(
-        w for w, f in freq_dict.items()
-        if len(w) == 5 and w.isalpha() and w.islower() and f >= 10 ** (-7 + min_zipf)
-    )
-
 
 class WordDistribution:
     """
-    A probability distribution over a word list.
+    A probability distribution over a vocabulary of 5-letter words.
 
-    Supports uniform sampling and frequency-weighted sampling
-    (words proportional to their corpus frequency).
+    Primary storage is a dict {word: probability} for O(1) lookups.
+    The word list and weight array are derived once at construction for
+    fast numpy sampling.  A word-to-index mapping is also maintained so
+    that other classes (PatternMatrix) can share it without rebuilding.
+
+    Construction
+    ------------
+    Pass either a dict of unnormalised weights, or a plain word list:
+
+        WordDistribution({"crane": 2.0, "slate": 1.0})  # custom weights
+        WordDistribution(["crane", "slate"])             # uniform
+        WordDistribution(["crane", "slate"], zipf=True)  # Zipf-weighted
+
+    Or use the corpus-backed classmethods:
+
+        WordDistribution.from_wordfreq()   # load from wordfreq (weighted)
+        WordDistribution.default()         # shorthand for from_wordfreq()
     """
 
-    def __init__(self, words: List[str], weights: Optional[np.ndarray] = None):
-        self.words = words
-        if weights is None:
-            weights = np.ones(len(words), dtype=np.float64)
-        self.weights = weights / weights.sum()
+    MIN_ZIPF: float = 1.0
+
+    def __init__(
+        self,
+        source: dict[str, float] | list[str],
+        *,
+        zipf: bool = False,
+    ):
+        """
+        Parameters
+        ----------
+        source : dict[str, float] | list[str]
+            Unnormalised weight dict, or a plain word list.
+        zipf : bool
+            Only used when source is a list.
+            False (default) → uniform weights.
+            True            → weight ∝ 10^zipf_frequency(word).
+        """
+        if isinstance(source, dict):
+            raw = source
+        elif zipf:
+            raw = {w: 10 ** zipf_frequency(w, "en") for w in source}
+        else:
+            raw = {w: 1.0 for w in source}
+
+        if not raw:
+            raise ValueError("WordDistribution requires at least one word.")
+
+        total = sum(raw.values())
+        # Sort alphabetically so the word order — and therefore the PatternMatrix
+        # cache hash — is identical regardless of how the distribution was created
+        # (wordfreq frequency order, list insertion order, etc.).
+        self._probs: dict[str, float] = {w: raw[w] / total for w in sorted(raw)}
+        self._words: List[str] = list(self._probs)
+        self._word_to_idx: dict[str, int] = {w: i for i, w in enumerate(self._words)}
+        self._weights: np.ndarray = np.array(list(self._probs.values()), dtype=np.float64)
 
     # ------------------------------------------------------------------
-    # Factories
+    # Corpus-backed constructors
     # ------------------------------------------------------------------
 
     @classmethod
-    def uniform(cls, words: List[str]) -> "WordDistribution":
-        """Uniform distribution: every word equally likely."""
-        return cls(words)
+    def from_wordfreq(cls, min_zipf: float = MIN_ZIPF) -> WordDistribution:
+        """
+        Load all 5-letter English words with Zipf score >= min_zipf from
+        the wordfreq corpus, weighted by corpus frequency.
+
+        Note: the word universe is wordfreq's "large" wordlist. Words not
+        in that list (e.g. some valid Scrabble words) will not appear even
+        if zipf_frequency() would return a qualifying score for them.
+        """
+        freq_dict = get_frequency_dict("en", wordlist="large")
+        threshold = 10 ** (-7 + min_zipf)
+        return cls({
+            w: f
+            for w, f in freq_dict.items()
+            if len(w) == 5 and w.isalpha() and w.islower() and f >= threshold
+        })
 
     @classmethod
-    def from_zipf(cls, words: List[str]) -> "WordDistribution":
-        """
-        Frequency-weighted distribution using Zipf scores from wordfreq.
+    def default(cls) -> WordDistribution:
+        """Load the default vocabulary (MIN_ZIPF = 1.0, ~3 527 words)."""
+        return cls.from_wordfreq()
 
-        Weight of word w  ∝  10^zipf_frequency(w, 'en').
-        This gives more common words a higher probability of being the answer,
-        mirroring how real Wordle selects its daily words.
-        """
-        weights = np.array(
-            [10 ** zipf_frequency(w, "en") for w in words], dtype=np.float64
-        )
-        return cls(words, weights)
+    # ------------------------------------------------------------------
+    # Lookup  (O(1))
+    # ------------------------------------------------------------------
+
+    def contains(self, word: str) -> bool:
+        """Return True if word is in this distribution."""
+        return word in self._probs
+
+    def probability(self, word: str) -> float:
+        """Return P(word), or 0.0 if word is not in this distribution."""
+        return self._probs.get(word, 0.0)
 
     # ------------------------------------------------------------------
     # Sampling
     # ------------------------------------------------------------------
 
-    def sample(self, rng: Optional[np.random.Generator] = None) -> str:
-        """Draw a single word according to the distribution."""
-        if rng is None:
-            rng = np.random.default_rng()
-        idx = rng.choice(len(self.words), p=self.weights)
-        return self.words[idx]
+    def sample(self, rng: Optional[np.random.Generator | int] = None) -> str:
+        """
+        Draw a single word according to the distribution.
 
-    def probability(self, word: str) -> float:
-        """Return the probability assigned to a given word."""
-        try:
-            idx = self.words.index(word)
-            return float(self.weights[idx])
-        except ValueError:
-            return 0.0
+        Parameters
+        ----------
+        rng : np.random.Generator | int | None
+            Generator, integer seed (reproducible), or None (random).
+        """
+        if isinstance(rng, int):
+            rng = np.random.default_rng(rng)
+        elif rng is None:
+            rng = np.random.default_rng()
+        idx = rng.choice(len(self._words), p=self._weights)
+        return self._words[idx]
+
+    # ------------------------------------------------------------------
+    # Standard interfaces
+    # ------------------------------------------------------------------
+
+    @property
+    def words(self) -> List[str]:
+        """Ordered list of words in this distribution."""
+        return self._words
 
     def __len__(self) -> int:
-        return len(self.words)
+        return len(self._probs)
 
     def __repr__(self) -> str:
-        return f"WordDistribution(n={len(self.words)})"
+        return f"WordDistribution(n={len(self._probs)})"
