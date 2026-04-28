@@ -31,17 +31,17 @@ At game start, $S = \mathcal{A}$ and $P$ equals the initial prior $P_0$ (corpus-
 
 For a guess $g$, the **marginal distribution** over feedback patterns is obtained by summing the prior over all candidates that would produce each pattern:
 
-$$P(f \mid g) = \sum_{w \in S} P(w) \cdot \mathbf{1}[\varphi(g,w) = f]$$
+$$P(f \mid g) = \sum_{w \in S} P(w) \cdot \mathbf{1}\bigl[\varphi(g,w) = f\bigr]$$
 
 With a uniform prior this reduces to $P(f \mid g) = |S_f| / |S|$, where $S_f = \{w \in S : \varphi(g,w) = f\}$.
 
 ### Bayesian Update
 
-After observing pattern $f^{*}$ for guess $g$, the posterior is updated via Bayes' rule:
+After observing pattern $f^{\ast}$ for guess $g$, the posterior is updated via Bayes' rule:
 
-$$P(w \mid f^{*}, g) = \frac{P(w) \cdot \mathbf{1}[\varphi(g,w) = f^{*}]}{P(f^{*} \mid g)}$$
+$$P(w \mid f^{\ast}, g) = \frac{P(w) \cdot \mathbf{1}\bigl[\varphi(g,w) = f^{\ast}\bigr]}{P(f^{\ast} \mid g)}$$
 
-Concretely: zero out candidates inconsistent with $f^{*}$, then renormalise. The surviving candidate set is $S' = \{w \in S : \varphi(g,w) = f^{*}\}$.
+Concretely: zero out candidates inconsistent with $f^{\ast}$, then renormalise. The surviving candidate set is $S' = \{w \in S : \varphi(g,w) = f^{\ast}\}$.
 
 ---
 
@@ -59,7 +59,7 @@ This measures how evenly the candidates are distributed across pattern buckets. 
 
 At each step, choose:
 
-$$g^{*} = \underset{g \in \mathcal{G}}{\text{arg max}}\ H(g, S)$$
+$$g^{\ast} = \underset{g \in \mathcal{G}}{\text{arg max}}\ H(g, S)$$
 
 Ties are broken by preferring words still in $S$ — they carry the same information but might already be the answer.
 
@@ -83,10 +83,10 @@ where $d_\pi(w)$ is the number of guesses used to identify $w$ under $\pi$.
 
 The optimal cost satisfies the recurrence (Bellman, 1957):
 
-$$C^{*}(S) = \min_{g \in \mathcal{G}} \left\{ 1 + \sum_{f \neq 242} P(f \mid g) \cdot C^{*}(S_f) \right\}$$
+$$C^{\ast}(S) = \min_{g \in \mathcal{G}} \Bigl[ 1 + \sum_{f \neq 242} P(f \mid g) \cdot C^{\ast}(S_f) \Bigr]$$
 
 where $S_f = \{w \in S : \varphi(g,w) = f\}$ and the sum runs over non-solved patterns only ($f = 242$ is all-green).
-Base cases: $C^{*}(\emptyset) = 0$, $C^{*}(\{w\}) = 1$. The optimal expected guesses is $C^{*}(S_0)$.
+Base cases: $C^{\ast}(\emptyset) = 0$, $C^{\ast}(\{w\}) = 1$. The optimal expected guesses is $C^{\ast}(S_0)$.
 
 **Complexity:** Worst case $O(2^{|\mathcal{A}|})$, tractable in practice via memoisation and branch-and-bound pruning with entropy-guided ordering.
 
