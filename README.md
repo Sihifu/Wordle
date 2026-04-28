@@ -10,7 +10,7 @@ A mathematically rigorous Wordle solver built as a **reinforcement-learning-styl
 
 For a guess $g$ and a hidden answer $w$, define the **pattern function**
 
-$$\varphi : \mathcal{G} \times \mathcal{A} \to \{0,1,2\}^5$$
+$$\varphi : \mathcal{G} \times \mathcal{A} \to \{0,1,2\}^{5}$$
 
 where position $i$ receives:
 
@@ -37,11 +37,11 @@ With a uniform prior this reduces to $P(f \mid g) = |S_f| / |S|$, where $S_f = \
 
 ### Bayesian Update
 
-After observing pattern $f^*$ for guess $g$, the posterior is updated via Bayes' rule:
+After observing pattern $f^{*}$ for guess $g$, the posterior is updated via Bayes' rule:
 
-$$P(w \mid f^*, g) = \frac{P(w) \cdot \mathbf{1}[\varphi(g,w) = f^*]}{P(f^* \mid g)}$$
+$$P(w \mid f^{*}, g) = \frac{P(w) \cdot \mathbf{1}[\varphi(g,w) = f^{*}]}{P(f^{*} \mid g)}$$
 
-Concretely: zero out candidates inconsistent with $f^*$, then renormalise. The surviving candidate set is $S' = \{w \in S : \varphi(g,w) = f^*\}$.
+Concretely: zero out candidates inconsistent with $f^{*}$, then renormalise. The surviving candidate set is $S' = \{w \in S : \varphi(g,w) = f^{*}\}$.
 
 ---
 
@@ -59,7 +59,7 @@ This measures how evenly the candidates are distributed across pattern buckets. 
 
 At each step, choose:
 
-$$g^* = \underset{g \in \mathcal{G}}{\operatorname{arg\,max}}\ H(g, S)$$
+$$g^{*} = \underset{g \in \mathcal{G}}{\text{arg max}}\ H(g, S)$$
 
 Ties are broken by preferring words still in $S$ — they carry the same information but might already be the answer.
 
@@ -83,9 +83,10 @@ where $d_\pi(w)$ is the number of guesses used to identify $w$ under $\pi$.
 
 The optimal cost satisfies the recurrence (Bellman, 1957):
 
-$$C^*(S) = \min_{g \in \mathcal{G}} \left\{ 1 + \sum_{f \,:\, S_f \neq \emptyset,\ f \neq 242} P(f \mid g) \cdot C^*(S_f) \right\}$$
+$$C^{*}(S) = \min_{g \in \mathcal{G}} \left\{ 1 + \sum_{f \neq 242} P(f \mid g) \cdot C^{*}(S_f) \right\}$$
 
-with base cases $C^*(\emptyset) = 0$, $C^*(\{w\}) = 1$. The optimal expected guesses is $C^*(S_0)$.
+where $S_f = \{w \in S : \varphi(g,w) = f\}$ and the sum runs over non-solved patterns only ($f = 242$ is all-green).
+Base cases: $C^{*}(\emptyset) = 0$, $C^{*}(\{w\}) = 1$. The optimal expected guesses is $C^{*}(S_0)$.
 
 **Complexity:** Worst case $O(2^{|\mathcal{A}|})$, tractable in practice via memoisation and branch-and-bound pruning with entropy-guided ordering.
 
@@ -196,7 +197,7 @@ pm2 = game.pm.extend(["soare", "adieu"])
 | `policy.py` | `pattern_marginal` | $P(f \mid g)$ — marginal over feedback patterns. |
 | `policy.py` | `entropy` | $H(p)$ — Shannon entropy in bits. |
 | `policy.py` | `bayesian_update` | Posterior update after observing a pattern. |
-| `policy.py` | `EntropyPolicy` | Greedy $\arg\max H(g, S)$ with Bayesian prior. |
+| `policy.py` | `EntropyPolicy` | Greedy $\text{arg max}\ H(g, S)$ with Bayesian prior. |
 
 ---
 
