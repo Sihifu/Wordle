@@ -3,23 +3,9 @@
 import pytest
 import numpy as np
 from wordle.game import WordleGame
-from wordle.pattern import PatternMatrix, PATTERN_SOLVED
+from wordle.pattern import PATTERN_SOLVED
 from wordle.words import WordDistribution
 from wordle.policy import RandomPolicy
-
-
-# ---------------------------------------------------------------------------
-# Lightweight fixture — bypasses wordfreq for speed
-# ---------------------------------------------------------------------------
-
-WORDS = ["crane", "slate", "audio", "stale", "groan"]
-
-@pytest.fixture(scope="module")
-def tiny_game(tmp_path_factory):
-    """A 5-word game (every word is both a valid guess and a valid answer)."""
-    cache = tmp_path_factory.mktemp("cache")
-    pm = PatternMatrix(WordDistribution(WORDS), cache_dir=cache)
-    return WordleGame(pm, max_guesses=6)
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +76,34 @@ class TestStep:
 # ---------------------------------------------------------------------------
 # Full game loop
 # ---------------------------------------------------------------------------
+
+class TestBuildWithLang:
+    def test_build_german_returns_game(self):
+        game = WordleGame.build(min_zipf=1.5, lang="de")
+        assert len(game.words) > 50
+        assert all(len(w) == 5 for w in game.words[:10])
+
+    def test_english_is_default_lang(self):
+        game_default = WordleGame.build(min_zipf=1.5)
+        game_en = WordleGame.build(min_zipf=1.5, lang="en")
+        assert game_default.words == game_en.words
+
+    def test_english_and_german_vocabularies_differ(self):
+        game_en = WordleGame.build(min_zipf=1.5, lang="en")
+        game_de = WordleGame.build(min_zipf=1.5, lang="de")
+        assert set(game_en.words) != set(game_de.words)
+
+    def test_german_game_can_run_full_loop(self):
+        from wordle.policy import EntropyPolicy
+        game = WordleGame.build(min_zipf=1.5, lang="de")
+        policy = EntropyPolicy()
+        target = game.words[0]
+        state, _ = game.new_game(word=target)
+        while not state.done:
+            guess = policy(state, game)
+            state, _, _ = game.step(state, guess, target)
+        assert state.solved
+
 
 class TestFullLoop:
     def test_random_policy_terminates(self, tiny_game):

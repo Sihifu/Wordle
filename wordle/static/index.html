@@ -1,0 +1,1006 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wordle Solver</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🟩</text></svg>">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #121213;
+  color: #fff;
+  font-family: 'Clear Sans', Helvetica, Arial, sans-serif;
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #3a3a3c;
+  padding-bottom: 12px;
+  margin-bottom: 10px;
+}
+h1 { font-size: 1.25em; letter-spacing: 0.12em; }
+
+/* ── Language toggle ──────────────────────────────── */
+.header-right { display: flex; gap: 8px; align-items: center; }
+.lang-toggle {
+  display: flex;
+  border: 1px solid #3a3a3c;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.lang-btn {
+  background: #1a1a1b;
+  border: none;
+  color: #818384;
+  padding: 6px 11px;
+  cursor: pointer;
+  font-size: 0.78em;
+  font-weight: bold;
+  letter-spacing: 0.08em;
+  transition: all 0.15s;
+}
+.lang-btn.active { background: #3a3a3c; color: #fff; }
+.lang-btn:hover:not(.active) { background: #2a2a2b; color: #d7dadc; }
+
+/* ── Vocabulary bar ───────────────────────────────── */
+.vocab-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  font-size: 0.78em;
+  color: #565758;
+  flex-wrap: wrap;
+}
+.vocab-label { white-space: nowrap; }
+.vocab-btn {
+  background: #1a1a1b;
+  border: 1px solid #3a3a3c;
+  color: #818384;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1em;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.vocab-btn:hover  { border-color: #565758; color: #fff; }
+.vocab-btn.active { background: #3a3a3c; border-color: #565758; color: #fff; }
+.vocab-count { margin-left: auto; color: #3a3a3c; font-style: italic; }
+.vocab-building {
+  color: #b59f3b;
+  font-style: italic;
+  animation: pulse 1.2s infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+/* ── Buttons ──────────────────────────────────────── */
+.btn {
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85em;
+  font-weight: bold;
+  transition: opacity 0.15s;
+}
+.btn:hover:not(:disabled) { opacity: 0.8; }
+.btn:disabled { opacity: 0.3; cursor: default; }
+.btn-green  { background: #538d4e; color: #fff; }
+.btn-grey   { background: #3a3a3c; color: #fff; }
+.btn-yellow { background: #b59f3b; color: #fff; }
+.btn-large  { width: 100%; padding: 12px; font-size: 1em; margin-top: 10px; }
+
+/* ── Status bar ───────────────────────────────────── */
+.status {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 0.82em;
+  color: #818384;
+  background: #1a1a1b;
+  border: 1px solid #3a3a3c;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+}
+.status .val { color: #fff; font-weight: bold; }
+
+/* ── Panels ───────────────────────────────────────── */
+.panel {
+  background: #1a1a1b;
+  border: 1px solid #3a3a3c;
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+.panel-label {
+  font-size: 0.68em;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #565758;
+  margin-bottom: 10px;
+}
+
+/* ── Suggestion panel ─────────────────────────────── */
+.sugg-word { font-size: 2.2em; font-weight: bold; letter-spacing: 0.25em; color: #538d4e; margin-bottom: 4px; }
+.sugg-meta { display: flex; gap: 18px; margin-bottom: 12px; flex-wrap: wrap; }
+.sugg-stat { font-size: 0.8em; color: #818384; }
+.sugg-stat span { color: #fff; font-weight: bold; }
+
+/* ── Mode bar (radio-based, lives outside all dynamic panels) ─ */
+.mode-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 10px;
+  font-size: 0.82em;
+  color: #818384;
+}
+.mode-bar-label { color: #565758; }
+.mode-radio-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  color: #818384;
+  user-select: none;
+}
+.mode-radio-label input[type="radio"] {
+  accent-color: #538d4e;
+  width: 14px; height: 14px;
+  cursor: pointer;
+}
+.mode-radio-label:has(input:checked) { color: #fff; }
+
+.top-list { display: flex; flex-direction: column; gap: 6px; }
+.top-item { display: flex; align-items: center; gap: 8px; font-size: 0.85em; }
+.top-rank { color: #565758; width: 18px; flex-shrink: 0; }
+.top-word { font-weight: bold; letter-spacing: 0.1em; width: 56px; flex-shrink: 0; }
+.top-bits { color: #818384; flex: 1; }
+.top-badge {
+  font-size: 0.72em; background: #1c3d1c; color: #538d4e;
+  border: 1px solid #538d4e; padding: 1px 6px; border-radius: 3px;
+}
+
+/* ── Not-in-vocab banner ──────────────────────────── */
+.not-in-vocab {
+  background: rgba(181,159,59,0.08);
+  border: 1px solid #b59f3b;
+  border-radius: 6px;
+  padding: 12px 14px;
+  font-size: 0.85em;
+  line-height: 1.5;
+}
+.not-in-vocab .niv-title { color: #b59f3b; font-weight: bold; margin-bottom: 6px; }
+.not-in-vocab .niv-hint  { color: #818384; margin-bottom: 10px; }
+
+/* ── Tiles ────────────────────────────────────────── */
+.tiles { display: flex; gap: 6px; justify-content: center; margin: 10px 0 6px; }
+.tile {
+  width: 54px; height: 54px;
+  border: 2px solid #565758; border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.55em; font-weight: bold;
+  cursor: pointer; user-select: none;
+  transition: background 0.1s, border-color 0.1s; color: #fff;
+}
+.tile.empty  { background: transparent; border-color: #565758; }
+.tile.grey   { background: #3a3a3c;    border-color: #3a3a3c; }
+.tile.yellow { background: #b59f3b;    border-color: #b59f3b; }
+.tile.green  { background: #538d4e;    border-color: #538d4e; }
+
+.color-hint { text-align: center; font-size: 0.72em; color: #565758; margin-bottom: 10px; }
+
+.word-input {
+  width: 100%; background: #121213; border: 2px solid #3a3a3c; border-radius: 4px;
+  color: #fff; font-size: 1.15em; padding: 10px 14px; letter-spacing: 0.2em;
+  text-transform: uppercase; outline: none; margin-bottom: 8px;
+}
+.word-input:focus { border-color: #818384; }
+.word-input::placeholder { letter-spacing: 0; text-transform: none; color: #3a3a3c; font-size: 0.8em; }
+
+.action-row { display: flex; gap: 8px; }
+.action-row .btn-grey  { flex: 0 0 auto; }
+.action-row .btn-green { flex: 1; padding: 12px; font-size: 1em; }
+
+/* ── History ──────────────────────────────────────── */
+.h-row { padding: 8px 0; border-bottom: 1px solid #2a2a2b; }
+.h-row:last-child { border-bottom: none; padding-bottom: 0; }
+.h-top { display: flex; align-items: center; gap: 10px; }
+.h-num  { color: #565758; font-size: 0.78em; width: 18px; flex-shrink: 0; }
+.h-word { font-weight: bold; letter-spacing: 0.14em; font-size: 1em; }
+.mini-tiles { display: flex; gap: 3px; }
+.mt {
+  width: 22px; height: 22px; border-radius: 2px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.6em; font-weight: bold; color: #fff;
+}
+.mt.grey   { background: #3a3a3c; }
+.mt.yellow { background: #b59f3b; }
+.mt.green  { background: #538d4e; }
+.h-comp { margin-top: 4px; padding-left: 26px; font-size: 0.78em; line-height: 1.4; }
+.c-tied   { color: #818384; }
+.c-better { color: #538d4e; }
+.c-worse  { color: #b59f3b; }
+
+/* ── Chart ────────────────────────────────────────── */
+#chart-canvas { width: 100% !important; }
+
+/* ── End screen ───────────────────────────────────── */
+.end-title { font-size: 1.6em; font-weight: bold; margin-bottom: 6px; }
+.end-score { font-size: 0.9em; color: #818384; margin-bottom: 8px; }
+
+/* Three-column path comparison */
+.end-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  margin: 14px 0 0;
+}
+.end-col-label {
+  font-size: 0.62em;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #565758;
+  padding-bottom: 5px;
+  border-bottom: 1px solid #2a2a2b;
+  margin-bottom: 4px;
+}
+.end-path-row { padding: 5px 0; }
+.end-path-row + .end-path-row { border-top: 1px solid #2a2a2b; }
+.end-path-word { font-weight: bold; letter-spacing: 0.06em; font-size: 0.82em; margin-bottom: 2px; }
+.end-path-bits { color: #818384; font-size: 0.72em; margin-top: 1px; }
+.end-chart-wrap { margin-top: 14px; }
+#end-chart-canvas { width: 100% !important; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>WORDLE SOLVER</h1>
+  <div class="header-right">
+    <div class="lang-toggle">
+      <button class="lang-btn active" id="lbtn-en" onclick="setLang('en')">EN</button>
+      <button class="lang-btn" id="lbtn-de" onclick="setLang('de')">DE</button>
+    </div>
+    <button class="btn btn-grey" onclick="newGame()">New Game</button>
+  </div>
+</header>
+
+<!-- Vocabulary selector -->
+<div class="vocab-bar">
+  <span class="vocab-label">Vocab:</span>
+  <button class="vocab-btn" id="vbtn-1.2" onclick="setVocab(1.2)">~3k</button>
+  <button class="vocab-btn active" id="vbtn-1.0" onclick="setVocab(1.0)">~3.5k</button>
+  <button class="vocab-btn" id="vbtn-0.7" onclick="setVocab(0.7)">~5k</button>
+  <button class="vocab-btn" id="vbtn-0.2" onclick="setVocab(0.2)">~8k</button>
+  <button class="vocab-btn" id="vbtn-0.0" onclick="setVocab(0.0)">Max ~11k</button>
+  <span class="vocab-count" id="vocab-count"></span>
+</div>
+
+<!-- Mode selector — lives OUTSIDE all dynamic panels, never re-rendered -->
+<div class="mode-bar">
+  <span class="mode-bar-label">Suggestions:</span>
+  <label class="mode-radio-label">
+    <input type="radio" name="sugg-mode" id="mode-answers"
+           onchange="setMode(true)" checked>
+    Answers only
+  </label>
+  <label class="mode-radio-label">
+    <input type="radio" name="sugg-mode" id="mode-all"
+           onchange="setMode(false)">
+    All words
+  </label>
+</div>
+
+<div class="status" id="status"><span>Loading…</span></div>
+
+<div class="panel" id="sugg-panel">
+  <div class="panel-label">Solver Suggests</div>
+  <div id="sugg-body" style="color:#565758;font-size:0.9em">Loading…</div>
+</div>
+
+<!-- Input panel -->
+<div class="panel" id="input-panel">
+  <div class="panel-label">Your Guess</div>
+  <div class="tiles" id="tiles">
+    <div class="tile empty" data-idx="0"></div>
+    <div class="tile empty" data-idx="1"></div>
+    <div class="tile empty" data-idx="2"></div>
+    <div class="tile empty" data-idx="3"></div>
+    <div class="tile empty" data-idx="4"></div>
+  </div>
+  <div class="color-hint">Click a tile to set its color &nbsp;⬜ → 🟨 → 🟩 → ⬜</div>
+  <input class="word-input" id="word-input" type="text" maxlength="5"
+         placeholder="Type your 5-letter guess…"
+         autocomplete="off" autocorrect="off" spellcheck="false">
+  <div class="action-row">
+    <button class="btn btn-grey" id="undo-btn" onclick="undoGuess()" disabled>← Undo</button>
+    <button class="btn btn-green" onclick="submitGuess()">Submit →</button>
+  </div>
+</div>
+
+<!-- History panel -->
+<div class="panel" id="hist-panel" style="display:none">
+  <div class="panel-label">History</div>
+  <div id="hist-list"></div>
+</div>
+
+<!-- Chart panel — shown after first guess -->
+<div class="panel" id="chart-panel" style="display:none">
+  <div class="panel-label">Performance Timeline</div>
+  <canvas id="chart-canvas" height="210"></canvas>
+</div>
+
+<!-- End panel -->
+<div class="panel" id="end-panel" style="display:none">
+  <div id="end-content"></div>
+</div>
+
+<script>
+Chart.defaults.color = '#818384';
+Chart.defaults.borderColor = '#2a2a2b';
+
+const COLORS      = ['grey', 'yellow', 'green'];
+const MAX_GUESSES = 6;
+
+let history        = [];
+let comparisons    = [];
+let entropyHistory = [];
+let initialEntropy = null;
+let curColors      = [0, 0, 0, 0, 0];
+let gameOver       = false;
+let perfChart      = null;
+let endChart       = null;
+let currentMinZipf = 1.0;
+let currentLang    = 'en';
+let candidatesOnly = true;
+
+const VOCAB_LABELS = {
+  en: {'1.2': '~3k',   '1.0': '~3.5k', '0.7': '~5k', '0.2': '~8k',  '0.0': 'Max ~11k'},
+  de: {'1.2': '~2.8k', '1.0': '~3.6k', '0.7': '~5k', '0.2': '~9k',  '0.0': 'Max ~11k'},
+};
+
+function updateVocabLabels() {
+  const labels = VOCAB_LABELS[currentLang] ?? VOCAB_LABELS.en;
+  [1.2, 1.0, 0.7, 0.2, 0.0].forEach(z => {
+    const btn = document.getElementById(`vbtn-${z.toFixed(1)}`);
+    if (btn) btn.textContent = labels[z.toFixed(1)];
+  });
+}
+
+// ── API ──────────────────────────────────────────────────────────────────────
+
+async function callAPI() {
+  const r = await fetch('/api/solve', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({history, candidates_only: candidatesOnly}),
+  });
+  return r.json();
+}
+
+// ── Shared history replay (used by setMode and setVocab) ─────────────────────
+
+async function replayHistory(savedHistory) {
+  history = [];
+  comparisons = [];
+  entropyHistory = [];
+
+  const initData = await callAPI();          // empty history → initial state
+  initialEntropy = initData.current_entropy;
+
+  let finalData = initData;
+  for (const entry of savedHistory) {
+    history.push(entry);
+    finalData = await callAPI();
+    comparisons.push(finalData.comparison || null);
+    entropyHistory.push(finalData.solved ? 0 : (finalData.current_entropy ?? null));
+  }
+  return finalData;
+}
+
+async function applyFinalState(finalData) {
+  const wasOver = finalData.solved || finalData.failed;
+  gameOver = wasOver;
+  document.getElementById('input-panel').style.display  = wasOver ? 'none' : '';
+  document.getElementById('end-panel').style.display    = wasOver ? ''     : 'none';
+  renderAll(finalData);
+  syncUndoBtn();
+  if (wasOver) renderEnd(finalData);
+}
+
+// ── Mode toggle ───────────────────────────────────────────────────────────────
+
+function setMode(co) {
+  candidatesOnly = co;
+  updateModeBtns();
+  if (history.length === 0) {
+    callAPI().then(renderSuggestion).catch(e => console.error('[setMode]', e));
+  } else {
+    replayHistory([...history])
+      .then(finalData => renderAll(finalData))
+      .catch(e => console.error('[setMode replay]', e));
+  }
+}
+
+// ── Language toggle ───────────────────────────────────────────────────────────
+
+async function setLang(lang) {
+  if (lang === currentLang) return;
+  currentLang = lang;
+  updateLangBtns();
+
+  // Reset game — a language switch means a completely different word list.
+  history = []; comparisons = []; entropyHistory = [];
+  curColors = [0,0,0,0,0]; gameOver = false;
+  candidatesOnly = true;
+  updateModeBtns();
+  if (perfChart) { perfChart.destroy(); perfChart = null; }
+  if (endChart)  { endChart.destroy();  endChart  = null; }
+  wordInput.value = '';
+  syncTiles('');
+  ['end-panel','hist-panel','chart-panel'].forEach(id =>
+    document.getElementById(id).style.display = 'none'
+  );
+  document.getElementById('hist-list').innerHTML = '';
+  document.getElementById('input-panel').style.display = '';
+  syncUndoBtn();
+
+  document.getElementById('vocab-count').className = 'vocab-count vocab-building';
+  document.getElementById('vocab-count').textContent = '…';
+  document.getElementById('status').innerHTML =
+    '<span class="vocab-building">Loading vocabulary…</span>';
+
+  try {
+    const r = await fetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({min_zipf: currentMinZipf, lang}),
+      signal: AbortSignal.timeout(600_000),
+    });
+    const cfg = await r.json();
+    currentMinZipf = cfg.min_zipf;
+    document.getElementById('vocab-count').className = 'vocab-count';
+    document.getElementById('vocab-count').textContent = `${cfg.word_count.toLocaleString()} words`;
+
+    const data = await callAPI();
+    initialEntropy = data.current_entropy;
+    renderAll(data);
+    wordInput.focus();
+  } catch (err) {
+    document.getElementById('vocab-count').className = 'vocab-count';
+    document.getElementById('vocab-count').textContent = 'Load failed — see terminal';
+  }
+}
+
+function updateLangBtns() {
+  document.getElementById('lbtn-en').classList.toggle('active', currentLang === 'en');
+  document.getElementById('lbtn-de').classList.toggle('active', currentLang === 'de');
+  updateVocabLabels();
+}
+
+// ── Vocabulary ────────────────────────────────────────────────────────────────
+
+async function setVocab(minZipf) {
+  if (minZipf === currentMinZipf) return;
+
+  document.querySelectorAll('.vocab-btn').forEach(b =>
+    b.classList.toggle('active', b.id === `vbtn-${minZipf.toFixed(1)}`)
+  );
+  document.getElementById('vocab-count').className = 'vocab-count vocab-building';
+  document.getElementById('vocab-count').textContent = '…';
+  document.getElementById('status').innerHTML =
+    '<span class="vocab-building">Loading vocabulary…</span>';
+
+  try {
+    const r = await fetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({min_zipf: minZipf, lang: currentLang}),
+      signal: AbortSignal.timeout(600_000),
+    });
+    const cfg = await r.json();
+    currentMinZipf = cfg.min_zipf;
+    document.getElementById('vocab-count').className = 'vocab-count';
+    document.getElementById('vocab-count').textContent = `${cfg.word_count.toLocaleString()} words`;
+
+    const saved = [...history];
+    const finalData = await replayHistory(saved);
+    await applyFinalState(finalData);
+
+  } catch (err) {
+    document.getElementById('vocab-count').className = 'vocab-count';
+    document.getElementById('vocab-count').textContent = 'Build failed — see terminal';
+  }
+}
+
+async function loadStatus() {
+  try {
+    const s = await fetch('/api/status').then(r => r.json());
+    currentMinZipf = s.min_zipf;
+    currentLang    = s.lang ?? 'en';
+    updateLangBtns();   // also calls updateVocabLabels()
+    document.getElementById('vocab-count').textContent =
+      `${s.word_count.toLocaleString()} words`;
+    document.querySelectorAll('.vocab-btn').forEach(b =>
+      b.classList.toggle('active', b.id === `vbtn-${s.min_zipf.toFixed(1)}`)
+    );
+  } catch (_) {}
+}
+
+// ── Undo ──────────────────────────────────────────────────────────────────────
+
+async function undoGuess() {
+  if (!history.length || gameOver) return;
+  history.pop();
+  comparisons.pop();
+  entropyHistory.pop();
+  const data = await callAPI();
+  renderAll(data);
+  syncUndoBtn();
+}
+
+function syncUndoBtn() {
+  document.getElementById('undo-btn').disabled = history.length === 0 || gameOver;
+}
+
+// ── Tiles ─────────────────────────────────────────────────────────────────────
+
+function syncTiles(word) {
+  document.querySelectorAll('#tiles .tile').forEach((t, i) => {
+    const letter = (word || '')[i] || '';
+    t.textContent = letter.toUpperCase();
+    t.className = 'tile ' + (letter ? COLORS[curColors[i]] : 'empty');
+  });
+}
+
+document.querySelectorAll('#tiles .tile').forEach(t => {
+  t.addEventListener('click', () => {
+    const i = parseInt(t.dataset.idx);
+    if (!document.getElementById('word-input').value[i]) return;
+    curColors[i] = (curColors[i] + 1) % 3;
+    t.className = 'tile ' + COLORS[curColors[i]];
+  });
+});
+
+const wordInput = document.getElementById('word-input');
+wordInput.addEventListener('input', e => {
+  // Allow a-z plus German umlauts (ä ö ü); harmless in EN mode.
+  const v = e.target.value.replace(/[^a-zA-ZäöüÄÖÜ]/g, '').toLowerCase().slice(0, 5);
+  e.target.value = v;
+  syncTiles(v);
+});
+wordInput.addEventListener('keydown', e => { if (e.key === 'Enter') submitGuess(); });
+
+// ── Submit ────────────────────────────────────────────────────────────────────
+
+async function submitGuess() {
+  if (gameOver) return;
+  const word = wordInput.value.trim().toLowerCase();
+  if (word.length !== 5) { alert('Please enter a 5-letter word.'); return; }
+
+  history.push({guess: word, pattern: [...curColors]});
+  const data = await callAPI();
+
+  comparisons.push(data.comparison || null);
+  entropyHistory.push(data.solved ? 0 : (data.current_entropy ?? null));
+
+  renderAll(data);
+  syncUndoBtn();
+
+  wordInput.value = '';
+  curColors = [0, 0, 0, 0, 0];
+  syncTiles('');
+  wordInput.focus();
+
+  if (data.solved || data.failed) {
+    gameOver = true;
+    document.getElementById('input-panel').style.display = 'none';
+    syncUndoBtn();
+    renderEnd(data);
+  }
+}
+
+// ── New game ──────────────────────────────────────────────────────────────────
+
+async function newGame() {
+  history = []; comparisons = []; entropyHistory = [];
+  curColors = [0,0,0,0,0]; gameOver = false;
+  candidatesOnly = true;   // always start fresh in "Answers only" mode
+  updateModeBtns();
+  if (perfChart) { perfChart.destroy(); perfChart = null; }
+  if (endChart)  { endChart.destroy();  endChart  = null; }
+  wordInput.value = '';
+  syncTiles('');
+  ['end-panel','hist-panel','chart-panel'].forEach(id =>
+    document.getElementById(id).style.display = 'none'
+  );
+  document.getElementById('hist-list').innerHTML = '';
+  document.getElementById('input-panel').style.display = '';
+  syncUndoBtn();
+
+  const data = await callAPI();
+  initialEntropy = data.current_entropy;
+  renderAll(data);
+  wordInput.focus();
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+
+function renderAll(data) {
+  renderStatus(data);
+  renderSuggestion(data);
+  renderHistory();
+  renderChart();
+}
+
+function renderStatus(data) {
+  const el = document.getElementById('status');
+  if (data.solved) {
+    el.innerHTML = `<span class="val" style="color:#538d4e">✓ Solved in ${data.guess_count} guess${data.guess_count !== 1 ? 'es' : ''}!</span>`;
+    return;
+  }
+  if (data.failed) {
+    el.innerHTML = `<span class="val" style="color:#b59f3b">✗ Failed — out of guesses</span>`;
+    return;
+  }
+  if (data.remaining === 0) {
+    el.innerHTML = `<span class="val" style="color:#b59f3b">⚠ Answer not in vocabulary</span>
+      <span>Try a larger vocabulary for better coverage.</span>`;
+    return;
+  }
+  el.innerHTML = `
+    <span>Guess <span class="val">${(data.guess_count || 0) + 1}</span> / ${MAX_GUESSES}</span>
+    <span><span class="val">${(data.remaining || 0).toLocaleString()}</span> candidates</span>
+    ${data.current_entropy != null
+      ? `<span>Uncertainty: <span class="val">${data.current_entropy}</span> bits</span>`
+      : ''}
+  `;
+}
+
+function updateModeBtns() {
+  document.getElementById('mode-answers').checked =  candidatesOnly;
+  document.getElementById('mode-all').checked     = !candidatesOnly;
+}
+
+function renderSuggestion(data) {
+  const el = document.getElementById('sugg-body');
+
+  if (data.remaining === 0 && !data.solved && !data.failed) {
+    const vocabHint = currentMinZipf > 0.5
+      ? `Switch to a larger vocabulary (button above) to include more obscure words, then try again.`
+      : `The word may not be in wordfreq's corpus at all.`;
+    el.innerHTML = `
+      <div class="not-in-vocab">
+        <div class="niv-title">⚠ Answer is not in the solver's vocabulary</div>
+        <div class="niv-hint">${vocabHint}</div>
+      </div>
+    `;
+    return;
+  }
+
+  if (!data.suggestion) {
+    el.innerHTML = `<div style="color:#565758">Game over</div>`;
+    return;
+  }
+
+  const curEnt  = data.current_entropy ?? 0;
+  const gainEnt = data.suggestion_entropy ?? 0;
+  const expRem  = Math.max(0, curEnt - gainEnt).toFixed(2);
+
+  const topRows = (data.top || []).map((item, i) => {
+    const rem = Math.max(0, curEnt - item.entropy).toFixed(2);
+    return `
+      <div class="top-item">
+        <span class="top-rank">${i+1}.</span>
+        <span class="top-word">${item.word.toUpperCase()}</span>
+        <span class="top-bits">${item.entropy} bits &nbsp;→&nbsp; ~${rem} remaining</span>
+        ${item.is_candidate ? '<span class="top-badge">answer</span>' : ''}
+      </div>
+    `;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="sugg-word">${data.suggestion.toUpperCase()}</div>
+    <div class="sugg-meta">
+      <div class="sugg-stat">Expected gain: <span>${gainEnt} bits</span></div>
+      <div class="sugg-stat">Expected remaining: <span>${expRem} bits</span></div>
+    </div>
+    <div class="top-list">${topRows}</div>
+  `;
+}
+
+function renderHistory() {
+  if (!history.length) {
+    document.getElementById('hist-panel').style.display = 'none';
+    return;
+  }
+  document.getElementById('hist-panel').style.display = '';
+  document.getElementById('hist-list').innerHTML = history.map((entry, i) => {
+    const miniTiles = entry.pattern.map((c, j) =>
+      `<div class="mt ${COLORS[c]}">${entry.guess[j].toUpperCase()}</div>`
+    ).join('');
+    let comp = '';
+    const cmp = comparisons[i];
+    if (cmp) {
+      const same     = cmp.your_guess === cmp.solver_guess;
+      const delta    = cmp.delta;
+      const oof      = cmp.your_in_vocab === false;
+      const oofNote    = oof ? ' <span style="color:#565758;font-size:0.9em">(not in vocab)</span>' : '';
+      const solverNote = (cmp.solver_is_candidate === false) ? ' <span style="color:#565758;font-size:0.9em">(not answer)</span>' : '';
+      const yourLabel   = `<b>${cmp.your_guess.toUpperCase()}</b>${oofNote} ${cmp.your_entropy} bits`;
+      const solverLabel = `Solver: <b>${cmp.solver_guess.toUpperCase()}</b>${solverNote} ${cmp.solver_entropy} bits`;
+      if (same && !oof) {
+        comp = `<div class="h-comp c-tied">Optimal — same pick as solver · ${cmp.your_entropy} bits</div>`;
+      } else if (delta < 0) {
+        comp = `<div class="h-comp c-better">You beat the solver! ${yourLabel} · ${solverLabel}</div>`;
+      } else if (delta < 0.05) {
+        comp = `<div class="h-comp c-tied">Near-optimal — ${yourLabel} · ${solverLabel}</div>`;
+      } else {
+        comp = `<div class="h-comp c-worse">${solverLabel} · Yours ${yourLabel} (−${delta.toFixed(2)})</div>`;
+      }
+    }
+    return `
+      <div class="h-row">
+        <div class="h-top">
+          <span class="h-num">${i+1}.</span>
+          <span class="h-word">${entry.guess.toUpperCase()}</span>
+          <div class="mini-tiles">${miniTiles}</div>
+        </div>
+        ${comp}
+      </div>`;
+  }).join('');
+}
+
+// ── Performance timeline chart ────────────────────────────────────────────────
+
+function renderChart() {
+  if (!history.length) {
+    document.getElementById('chart-panel').style.display = 'none';
+    if (perfChart) { perfChart.destroy(); perfChart = null; }
+    return;
+  }
+  document.getElementById('chart-panel').style.display = '';
+
+  const labels       = ['Start', ...history.map((_, i) => `G${i+1}`)];
+  const entropyLine  = [initialEntropy, ...entropyHistory.map(e => e ?? null)];
+  const yourGains    = [null, ...comparisons.map(c => c?.your_entropy   ?? null)];
+  const solverGains  = [null, ...comparisons.map(c => c?.solver_entropy ?? null)];
+
+  const datasets = [
+    {
+      type: 'bar', label: 'Your expected gain', data: yourGains,
+      backgroundColor: '#3a3a3c', borderColor: '#565758', borderWidth: 1, order: 2,
+    },
+    {
+      type: 'bar', label: 'Optimal expected gain', data: solverGains,
+      backgroundColor: 'rgba(83,141,78,0.22)', borderColor: '#538d4e', borderWidth: 1.5, order: 2,
+    },
+    {
+      type: 'line', label: 'Uncertainty remaining', data: entropyLine,
+      borderColor: '#b59f3b', backgroundColor: 'rgba(181,159,59,0.07)',
+      borderWidth: 2, fill: true, tension: 0.35,
+      pointRadius: 5, pointBackgroundColor: '#b59f3b',
+      pointBorderColor: '#121213', pointBorderWidth: 1.5,
+      yAxisID: 'y2', order: 1,
+    },
+  ];
+
+  const options = {
+    responsive: true,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: {
+        position: 'bottom',
+        labels: { color: '#818384', font: { size: 11 }, boxWidth: 12, padding: 12 },
+      },
+      tooltip: {
+        backgroundColor: '#1a1a1b', borderColor: '#3a3a3c', borderWidth: 1,
+        titleColor: '#fff', bodyColor: '#818384',
+        callbacks: {
+          label: ctx => {
+            const v = ctx.parsed.y;
+            return v != null ? `  ${ctx.dataset.label}: ${v.toFixed(2)} bits` : null;
+          },
+        },
+      },
+    },
+    scales: {
+      x: { ticks: { color: '#818384', font: { size: 11 } }, grid: { color: '#2a2a2b' } },
+      y: {
+        title: { display: true, text: 'bits gained', color: '#818384', font: { size: 11 } },
+        ticks: { color: '#818384', font: { size: 11 } }, grid: { color: '#2a2a2b' }, min: 0,
+      },
+      y2: {
+        position: 'right',
+        title: { display: true, text: 'bits remaining', color: '#b59f3b', font: { size: 11 } },
+        ticks: { color: '#b59f3b', font: { size: 11 } }, grid: { display: false }, min: 0,
+      },
+    },
+  };
+
+  if (perfChart) {
+    perfChart.data.labels           = labels;
+    perfChart.data.datasets[0].data = yourGains;
+    perfChart.data.datasets[1].data = solverGains;
+    perfChart.data.datasets[2].data = entropyLine;
+    perfChart.update('none');
+  } else {
+    const ctx = document.getElementById('chart-canvas').getContext('2d');
+    perfChart = new Chart(ctx, { type: 'bar', data: { labels, datasets }, options });
+  }
+}
+
+// ── End screen ────────────────────────────────────────────────────────────────
+
+function renderEnd(data) {
+  const el = document.getElementById('end-panel');
+  el.style.display = '';
+  const userN     = data.guess_count;
+  const hasSolver = data.solver_trace_answers != null;
+  const ansN      = data.solver_guesses_answers;
+  const allN      = data.solver_guesses_all;
+
+  // Score summary
+  let scoreHTML = '';
+  if (hasSolver) {
+    scoreHTML = `<div class="end-score">
+      Answers only: <strong>${ansN} guess${ansN!==1?'es':''}</strong>
+      &nbsp;·&nbsp; All words: <strong>${allN} guess${allN!==1?'es':''}</strong>
+    </div>`;
+  }
+
+  // Build rows for any path (user or solver trace)
+  const pathRows = (entries, getBits) => entries.map((entry, i) => {
+    const miniTiles = entry.pattern.map((c, j) =>
+      `<div class="mt ${COLORS[c]}">${entry.guess[j].toUpperCase()}</div>`
+    ).join('');
+    const bits = getBits(entry, i);
+    return `<div class="end-path-row">
+      <div class="end-path-word">${entry.guess.toUpperCase()}</div>
+      <div class="mini-tiles" style="margin:2px 0">${miniTiles}</div>
+      <div class="end-path-bits">+${bits} bits</div>
+    </div>`;
+  }).join('');
+
+  const userRows = pathRows(history,    (_, i) => comparisons[i]?.your_entropy ?? '?');
+  const ansRows  = hasSolver ? pathRows(data.solver_trace_answers, s => s.entropy_gained) : '';
+  const allRows  = hasSolver ? pathRows(data.solver_trace_all,     s => s.entropy_gained) : '';
+
+  const noSolverNote = `<div class="end-path-row" style="color:#565758;font-size:0.82em">Answer not in vocabulary</div>`;
+
+  const chartHTML = hasSolver
+    ? `<div class="end-chart-wrap">
+         <div class="panel-label" style="margin-bottom:8px">Entropy trajectories</div>
+         <canvas id="end-chart-canvas" height="160"></canvas>
+       </div>`
+    : '';
+
+  el.innerHTML = `
+    <div class="panel-label">${data.solved ? 'Result' : 'Game Over'}</div>
+    <div class="end-title" style="color:${data.solved ? '#538d4e' : '#b59f3b'}">
+      ${data.solved ? `Solved in ${userN} guess${userN !== 1 ? 'es' : ''}!` : 'Better luck next time!'}
+    </div>
+    ${scoreHTML}
+    <div class="end-compare">
+      <div>
+        <div class="end-col-label">You (${userN})</div>
+        ${userRows}
+      </div>
+      <div>
+        <div class="end-col-label" style="color:#538d4e">Answers only${hasSolver ? ` (${ansN})` : ''}</div>
+        ${hasSolver ? ansRows : noSolverNote}
+      </div>
+      <div>
+        <div class="end-col-label" style="color:#3a7dbf">All words${hasSolver ? ` (${allN})` : ''}</div>
+        ${hasSolver ? allRows : noSolverNote}
+      </div>
+    </div>
+    ${chartHTML}
+    <button class="btn btn-green btn-large" onclick="newGame()">Play Again</button>
+  `;
+
+  if (hasSolver) renderEndChart(data);
+}
+
+function renderEndChart(data) {
+  if (endChart) { endChart.destroy(); endChart = null; }
+  const canvas = document.getElementById('end-chart-canvas');
+  if (!canvas) return;
+
+  const maxN   = Math.max(history.length, data.solver_trace_answers.length, data.solver_trace_all.length);
+  const labels = ['Start', ...Array.from({length: maxN}, (_, i) => `G${i+1}`)];
+  const baseEnt = data.initial_entropy ?? initialEntropy;
+
+  const pad = (arr) => { while (arr.length < labels.length) arr.push(null); return arr; };
+
+  const userLine    = pad([baseEnt, ...entropyHistory.map(e => e ?? null)]);
+  const answersLine = pad([baseEnt, ...data.solver_trace_answers.map(s => s.entropy_after)]);
+  const allLine     = pad([baseEnt, ...data.solver_trace_all.map(s => s.entropy_after)]);
+
+  const ctx = canvas.getContext('2d');
+  endChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Your path',
+          data: userLine,
+          borderColor: '#b59f3b', backgroundColor: 'rgba(181,159,59,0.08)',
+          borderWidth: 2, tension: 0.3, fill: false, spanGaps: false,
+          pointRadius: 5, pointBackgroundColor: '#b59f3b',
+          pointBorderColor: '#121213', pointBorderWidth: 1.5,
+        },
+        {
+          label: 'Answers only',
+          data: answersLine,
+          borderColor: '#538d4e', backgroundColor: 'rgba(83,141,78,0.08)',
+          borderWidth: 2, tension: 0.3, fill: false, spanGaps: false,
+          pointRadius: 5, pointBackgroundColor: '#538d4e',
+          pointBorderColor: '#121213', pointBorderWidth: 1.5,
+        },
+        {
+          label: 'All words',
+          data: allLine,
+          borderColor: '#3a7dbf', backgroundColor: 'rgba(58,125,191,0.08)',
+          borderWidth: 2, tension: 0.3, fill: false, spanGaps: false,
+          pointRadius: 5, pointBackgroundColor: '#3a7dbf',
+          pointBorderColor: '#121213', pointBorderWidth: 1.5,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: { color: '#818384', font: { size: 11 }, boxWidth: 12, padding: 12 },
+        },
+        tooltip: {
+          backgroundColor: '#1a1a1b', borderColor: '#3a3a3c', borderWidth: 1,
+          titleColor: '#fff', bodyColor: '#818384',
+          callbacks: {
+            label: ctx => {
+              const v = ctx.parsed.y;
+              return v != null ? `  ${ctx.dataset.label}: ${v.toFixed(2)} bits remaining` : null;
+            },
+          },
+        },
+      },
+      scales: {
+        x: { ticks: { color: '#818384', font: { size: 11 } }, grid: { color: '#2a2a2b' } },
+        y: {
+          title: { display: true, text: 'bits remaining', color: '#818384', font: { size: 11 } },
+          ticks: { color: '#818384', font: { size: 11 } },
+          grid: { color: '#2a2a2b' },
+          min: 0,
+        },
+      },
+    },
+  });
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+
+(async () => {
+  await loadStatus();
+  const data = await callAPI();
+  initialEntropy = data.current_entropy;
+  renderAll(data);
+  wordInput.focus();
+})();
+</script>
+</body>
+</html>

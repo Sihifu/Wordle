@@ -1,6 +1,6 @@
-# Wordle Optimal Solver
+# Wordle Solver
 
-A mathematically rigorous Wordle solver built as a **reinforcement-learning-style agent** framework. Two optimal strategies are implemented: a greedy entropy-maximising policy and (planned) an exact decision-tree policy.
+A mathematically rigorous Wordle solver built as a **reinforcement-learning-style agent** framework. The solver uses greedy Shannon-entropy maximisation with a Bayesian prior over word frequencies, and ships with an interactive browser UI for real-life play assistance.
 
 ---
 
@@ -29,66 +29,27 @@ At game start, $S = \mathcal{A}$ and $P$ equals the initial prior $P_0$ (corpus-
 
 ### Marginal Distribution over Patterns
 
-For a guess $g$, the **marginal distribution** over feedback patterns is obtained by summing the prior over all candidates that would produce each pattern:
+For a guess $g$, the **marginal distribution** over feedback patterns is:
 
 $$P(f \mid g) = \sum_{w \in S} P(w) \cdot \mathbf{1}\bigl[\varphi(g,w) = f\bigr]$$
 
-With a uniform prior this reduces to $P(f \mid g) = |S_f| / |S|$, where $S_f = \{w \in S : \varphi(g,w) = f\}$.
-
 ### Bayesian Update
 
-After observing pattern $f^{\ast}$ for guess $g$, the posterior is updated via Bayes' rule:
+After observing pattern $f^{\ast}$ for guess $g$:
 
 $$P(w \mid f^{\ast}, g) = \frac{P(w) \cdot \mathbf{1}\bigl[\varphi(g,w) = f^{\ast}\bigr]}{P(f^{\ast} \mid g)}$$
 
-Concretely: zero out candidates inconsistent with $f^{\ast}$, then renormalise. The surviving candidate set is $S' = \{w \in S : \varphi(g,w) = f^{\ast}\}$.
+Surviving candidate set: $S' = \{w \in S : \varphi(g,w) = f^{\ast}\}$.
 
----
-
-## Approach 1 — Entropy Maximisation (Greedy)
-
-### Entropy of a Guess
-
-The **Shannon entropy** of guess $g$ over remaining candidates $S$ is the expected information gained:
+### Entropy Maximisation (Greedy)
 
 $$H(g, S) = -\sum_{f} P(f \mid g) \log_2 P(f \mid g)$$
 
-This measures how evenly the candidates are distributed across pattern buckets. A perfectly informative guess partitions $S$ into $|S|$ singletons, achieving $H = \log_2 |S|$ bits.
+At each step choose $g^{\ast} = \underset{g \in \mathcal{G}}{\text{arg max}}\ H(g, S)$.  Ties broken by preferring words still in $S$.
 
-### Algorithm
+**Complexity:** $O(|\mathcal{G}| \cdot |S|)$ per step, fully vectorised with NumPy, chunked to stay within an ~8 MB working set.
 
-At each step, choose:
-
-$$g^{\ast} = \underset{g \in \mathcal{G}}{\text{arg max}}\ H(g, S)$$
-
-Ties are broken by preferring words still in $S$ — they carry the same information but might already be the answer.
-
-**Complexity:** $O(|\mathcal{G}| \cdot |S|)$ per step, fully vectorised with NumPy.
-
-**Note:** This is locally optimal (maximises immediate information gain) but not globally optimal. It performs close to the theoretical minimum in practice (~3.5 average guesses on a 3 500-word vocabulary).
-
----
-
-## Approach 2 — Optimal Decision Tree (Planned)
-
-### Problem Formulation
-
-Define the **total guess cost** of a strategy $\pi$ over candidates $S$:
-
-$$C(\pi, S) = \sum_{w \in S} P(w) \cdot d_\pi(w)$$
-
-where $d_\pi(w)$ is the number of guesses used to identify $w$ under $\pi$.
-
-### Optimal Substructure
-
-The optimal cost satisfies the recurrence (Bellman, 1957):
-
-$$C^{\ast}(S) = \min_{g \in \mathcal{G}} \Bigl[ 1 + \sum_{f \neq 242} P(f \mid g) \cdot C^{\ast}(S_f) \Bigr]$$
-
-where $S_f = \{w \in S : \varphi(g,w) = f\}$ and the sum runs over non-solved patterns only ($f = 242$ is all-green).
-Base cases: $C^{\ast}(\emptyset) = 0$, $C^{\ast}(\{w\}) = 1$. The optimal expected guesses is $C^{\ast}(S_0)$.
-
-**Complexity:** Worst case $O(2^{|\mathcal{A}|})$, tractable in practice via memoisation and branch-and-bound pruning with entropy-guided ordering.
+**Note:** Locally optimal (greedy), not globally optimal. Achieves ~3.5 average guesses on a 3 500-word vocabulary.
 
 ---
 
@@ -96,23 +57,24 @@ Base cases: $C^{\ast}(\emptyset) = 0$, $C^{\ast}(\{w\}) = 1$. The optimal expect
 
 ```
 wordle/
-├── words.py        WordDistribution   — vocabulary + prior P₀(w)
-├── pattern.py      PatternMatrix      — precomputed φ(g,w) cache
-├── state.py        GameState          — immutable belief state (S, history)
-├── game.py         WordleGame         — simulator (holds secret word)
-└── policy.py       Policy ABC         — agent interface
-                    RandomPolicy       — uniform random from candidates
-                    HumanPolicy        — interactive stdin
-                    EntropyPolicy      — greedy H(g,S) maximisation
-                    pattern_marginal   — P(f|g)  [utility function]
-                    entropy            — H(p)     [utility function]
-                    bayesian_update    — Bayes posterior update
+├── words.py      WordDistribution   — vocabulary + prior P₀(w), multi-language
+├── pattern.py    PatternMatrix      — precomputed φ(g,w) with disk cache
+├── game.py       GameState          — immutable belief state (S, history)
+│               WordleGame         — simulator; new_game() / step() interface
+├── policy.py     Policy ABC         — agent interface
+│               RandomPolicy       — uniform random from candidates
+│               HumanPolicy        — interactive stdin
+│               EntropyPolicy      — greedy H(g,S) maximisation
+│               pattern_marginal   — P(f|g)  [utility]
+│               entropy            — H(p)     [utility]
+│               bayesian_update    — Bayes posterior update
+└── api.py        FastAPI server     — stateless JSON API + browser UI
 ```
 
 ### Data Flow
 
 ```
-WordDistribution(P₀)
+WordDistribution(P₀, lang)
        │
        ▼
 PatternMatrix(dist)  ──── cached to data/patterns_<hash>.npy
@@ -122,14 +84,14 @@ WordleGame(pm)
        │
   new_game() ──► GameState(S=A, history=())
        │
-  ┌────┴─────────────────────────────────────────┐
-  │  while not state.done:                       │
-  │    guess  = policy(state, game)              │
-  │    state, pattern, done = game.step(...)     │
-  └──────────────────────────────────────────────┘
+  ┌────┴──────────────────────────────────────┐
+  │  while not state.done:                    │
+  │    guess  = policy(state, game)           │
+  │    state, pattern, done = game.step(...)  │
+  └───────────────────────────────────────────┘
 ```
 
-`GameState` is **immutable** — every `update()` returns a new instance — so states can be safely hashed and used as memoisation keys for the decision-tree solver.
+`GameState` is **immutable** — every `update()` returns a new instance — so states can be safely hashed and used as dict keys.
 
 ---
 
@@ -137,30 +99,48 @@ WordleGame(pm)
 
 ```bash
 git clone <repo>
-cd wordle-solver
+cd wordle
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+
+# Runtime
+pip install -e .
+
+# Development + testing
+pip install -e ".[dev]"
+
+# Web UI
+pip install -e ".[web]"
 ```
 
-The first call to `WordleGame.build()` precomputes the $n \times n$ pattern matrix and caches it to `data/`. All subsequent calls load from cache instantly.
+The first call to `WordleGame.build()` computes the $n \times n$ pattern matrix and caches it to `data/`. All subsequent calls load from cache instantly.
 
 ---
 
-## Quick Start
+## Quick Start — Python API
 
 ```python
 from wordle.game import WordleGame
 from wordle.policy import EntropyPolicy
 
-game   = WordleGame.build()          # loads words, builds/loads pattern matrix
+game   = WordleGame.build()          # English, min_zipf=1.0 (~3 500 words)
 policy = EntropyPolicy()
 
 state, target = game.new_game()      # draw target from Zipf prior
 while not state.done:
-    guess          = policy(state, game)
-    state, pat, _  = game.step(state, guess, target)
+    guess         = policy(state, game)
+    state, pat, _ = game.step(state, guess, target)
 
 state.show()                         # coloured board
+```
+
+### Language support
+
+```python
+# German vocabulary (wordfreq corpus, same Zipf thresholds)
+game_de = WordleGame.build(lang="de")
+
+# Custom Zipf threshold
+game = WordleGame.build(min_zipf=0.5, lang="en")  # ~8 000 English words
 ```
 
 ### Custom prior
@@ -168,19 +148,47 @@ state.show()                         # coloured board
 ```python
 from wordle.words import WordDistribution
 
-# Zipf-weighted: common words more likely to be the answer
-dist   = WordDistribution.from_wordfreq()
-
-# Or pin a specific word
-state, target = game.new_game(word="crane")
+dist  = WordDistribution.from_wordfreq(lang="de")   # German, default threshold
+state, target = game.new_game(word="crane")          # pin specific answer
 ```
 
-### Incremental vocabulary extension
+---
 
-```python
-# Add words without recomputing the full matrix
-pm2 = game.pm.extend(["soare", "adieu"])
+## Web UI
+
+A browser-based assistant for playing NYT Wordle or Süddeutsche Wordle in real time.
+
+### Start the server
+
+```bash
+uvicorn wordle.api:app --host 127.0.0.1 --port 8000
+# or
+python -m wordle.api
 ```
+
+Then open **http://127.0.0.1:8000** in your browser (file:// does not work — the UI needs the API).
+
+### Features
+
+| Feature | Description |
+|---|---|
+| **Live suggestions** | Best guess + top-5 list with expected information gain |
+| **Two modes** | *Answers only* — solver picks from remaining candidates only; *All words* — full vocabulary search |
+| **Language toggle** | Switch between English and German vocabulary mid-session |
+| **Vocabulary sizes** | 5 Zipf levels (~3 k → ~11 k words) per language, all preloaded in background |
+| **Performance timeline** | Chart showing entropy remaining and expected gain per turn |
+| **End-of-game comparison** | Side-by-side: your path / answers-only solver / all-words solver with entropy trajectories |
+| **Undo** | Step back through your guesses |
+| **History annotation** | Each guess annotated as optimal / near-optimal / suboptimal vs. solver |
+
+### API Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/solve` | Main solver — accepts `history` + `candidates_only` flag |
+| `POST` | `/api/simulate` | Compute both solver traces for a given answer word |
+| `POST` | `/api/config` | Switch vocabulary size (`min_zipf`) and/or language (`lang`) |
+| `GET` | `/api/status` | Current vocabulary metadata |
 
 ---
 
@@ -188,16 +196,17 @@ pm2 = game.pm.extend(["soare", "adieu"])
 
 | Module | Key class / function | Description |
 |---|---|---|
-| `words.py` | `WordDistribution` | Vocabulary + $P_0(w)$. Accepts dict, list (uniform), list (Zipf). |
+| `words.py` | `WordDistribution` | Vocabulary + $P_0(w)$. Accepts dict, list (uniform), list (Zipf). Multi-language via `lang=`. |
 | `pattern.py` | `PatternMatrix` | Precomputed $\varphi(g,w)$ for all pairs. Cached to disk by word-list hash. |
 | `pattern.py` | `compute_pattern(g, a)` | Pure function, returns pattern int in $[0, 242]$. |
 | `pattern.py` | `decode_pattern(p)` | Returns emoji string e.g. `🟩⬛🟨🟩⬛`. |
-| `state.py` | `GameState` | Frozen dataclass: `candidates`, `history`, `max_guesses`. `.show()` prints board. |
-| `game.py` | `WordleGame` | Simulator. `new_game()` / `step()` interface. |
+| `game.py` | `GameState` | Frozen dataclass: `candidates`, `history`, `max_guesses`. `.show()` prints board. |
+| `game.py` | `WordleGame` | Simulator. `build(min_zipf, lang)` / `new_game()` / `step()`. |
 | `policy.py` | `pattern_marginal` | $P(f \mid g)$ — marginal over feedback patterns. |
 | `policy.py` | `entropy` | $H(p)$ — Shannon entropy in bits. |
 | `policy.py` | `bayesian_update` | Posterior update after observing a pattern. |
 | `policy.py` | `EntropyPolicy` | Greedy $\text{arg max}\ H(g, S)$ with Bayesian prior. |
+| `api.py` | `app` | FastAPI application. Run with `uvicorn wordle.api:app`. |
 
 ---
 
@@ -207,7 +216,14 @@ pm2 = game.pm.extend(["soare", "adieu"])
 pytest tests/ -v
 ```
 
-45 tests covering pattern correctness (including duplicate-letter edge cases), state immutability and hashability, and the full game loop.
+126 tests covering:
+
+- **Pattern correctness** — duplicate-letter edge cases, round-trips, matrix caching
+- **GameState** — immutability, hashability, solved/failed transitions
+- **WordDistribution** — construction, sampling, normalisation, multi-language
+- **WordleGame** — full game loop, language switching (`en`/`de`), policy integration
+- **Policy math** — `pattern_marginal`, `entropy`, `bayesian_update`, `EntropyPolicy`
+- **API** — all endpoints, both solver modes, end-of-game traces, language config
 
 ---
 
@@ -218,7 +234,6 @@ Each module has a companion Jupyter notebook in `wordle/`:
 | Notebook | Demonstrates |
 |---|---|
 | `words_demo.ipynb` | `WordDistribution` construction, sampling, probability lookup |
-| `pattern_demo.ipynb` | `PatternMatrix` build, cache, extension |
-| `state_demo.ipynb` | `GameState` transitions, `show()` board rendering |
+| `pattern_demo.ipynb` | `PatternMatrix` build, cache |
 | `game_demo.ipynb` | Full game loop with `WordleGame` |
 | `policy_demo.ipynb` | All policies, marginal/entropy/Bayes utilities, aggregate stats |

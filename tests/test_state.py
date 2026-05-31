@@ -1,7 +1,7 @@
 """Tests for GameState immutability, transitions, and derived properties."""
 
 import pytest
-from wordle.state import GameState
+from wordle.game import GameState
 from wordle.pattern import PATTERN_SOLVED, PatternMatrix
 from wordle.words import WordDistribution
 
@@ -91,3 +91,67 @@ class TestHashability:
         s2 = initial_state.update("crane", PATTERN_SOLVED, pm)
         assert s1 == s2
         assert hash(s1) == hash(s2)
+
+
+class TestLastGuessAndPattern:
+    def test_last_guess_none_when_no_history(self, initial_state):
+        assert initial_state.last_guess() is None
+
+    def test_last_pattern_none_when_no_history(self, initial_state):
+        assert initial_state.last_pattern() is None
+
+    def test_last_guess_after_one_step(self, initial_state, pm):
+        pattern = pm.get("crane", "slate")
+        state = initial_state.update("crane", pattern, pm)
+        assert state.last_guess() == "crane"
+
+    def test_last_pattern_after_one_step(self, initial_state, pm):
+        pattern = pm.get("crane", "slate")
+        state = initial_state.update("crane", pattern, pm)
+        assert state.last_pattern() == pattern
+
+    def test_last_guess_reflects_most_recent(self, initial_state, pm):
+        p1 = pm.get("crane", "slate")
+        p2 = pm.get("slate", "slate")
+        state = initial_state.update("crane", p1, pm).update("slate", p2, pm)
+        assert state.last_guess() == "slate"
+
+    def test_last_pattern_reflects_most_recent(self, initial_state, pm):
+        p1 = pm.get("crane", "slate")
+        p2 = pm.get("slate", "slate")
+        state = initial_state.update("crane", p1, pm).update("slate", p2, pm)
+        assert state.last_pattern() == p2
+
+
+class TestShow:
+    def test_show_runs_without_error(self, initial_state, pm):
+        initial_state.show()
+
+    def test_show_after_guesses(self, initial_state, pm):
+        pattern = pm.get("crane", "slate")
+        state = initial_state.update("crane", pattern, pm)
+        state.show()
+
+    def test_show_solved_state(self, initial_state, pm):
+        state = initial_state.update("crane", PATTERN_SOLVED, pm)
+        state.show()
+
+    def test_show_failed_state(self, pm):
+        state = GameState(
+            candidates=frozenset(range(len(pm))),
+            history=(),
+            max_guesses=1,
+        )
+        pattern = pm.get("stale", "crane")
+        state = state.update("stale", pattern, pm)
+        state.show()
+
+
+class TestRepr:
+    def test_repr_contains_key_info(self, initial_state, pm):
+        pattern = pm.get("crane", "slate")
+        state = initial_state.update("crane", pattern, pm)
+        r = repr(state)
+        assert "guesses=" in r
+        assert "remaining=" in r
+        assert "solved=" in r

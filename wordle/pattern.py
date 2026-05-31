@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import List
 
 import numpy as np
 from tqdm import tqdm
@@ -95,12 +94,6 @@ class PatternMatrix:
     Saved to `<cache_dir>/patterns_<hash>.npy` on first build; loaded
     from disk on subsequent calls.  The hash encodes the word list, so
     the cache is invalidated automatically when the vocabulary changes.
-
-    Extension
-    ---------
-    pm.extend(new_words)  — returns a new PatternMatrix with new_words
-    added, reusing all existing entries (only the two new blocks are
-    computed from scratch).
     """
 
     def __init__(self, dist: WordDistribution, cache_dir: Path | None = None):
@@ -117,20 +110,6 @@ class PatternMatrix:
         """Build or load a PatternMatrix for the default wordfreq vocabulary."""
         return cls(WordDistribution.default(), cache_dir=cache_dir)
 
-    @classmethod
-    def _from_parts(
-        cls,
-        dist: WordDistribution,
-        matrix: np.ndarray,
-        cache_dir: Path,
-    ) -> PatternMatrix:
-        """Private constructor used by extend() — skips load/build."""
-        obj = cls.__new__(cls)
-        obj._dist = dist
-        obj._cache_dir = cache_dir
-        obj._matrix = matrix
-        return obj
-
     # ------------------------------------------------------------------
     # Properties
     # ------------------------------------------------------------------
@@ -141,7 +120,7 @@ class PatternMatrix:
         return self._matrix
 
     @property
-    def words(self) -> List[str]:
+    def words(self) -> list[str]:
         """Ordered vocabulary list."""
         return self._dist.words
 
@@ -197,66 +176,6 @@ class PatternMatrix:
             for j, a in enumerate(words):
                 matrix[i, j] = compute_pattern(g, a)
         return matrix
-
-    # ------------------------------------------------------------------
-    # Incremental extension
-    # ------------------------------------------------------------------
-
-    def extend(self, new_words: List[str]) -> PatternMatrix:
-        """
-        Return a new PatternMatrix extended with new_words.
-
-        The result is a full (n+k) × (n+k) matrix sorted alphabetically —
-        old and new words are interleaved by their position in the alphabet,
-        not grouped.
-
-        Internally the computation is done in "existing first, new last" order
-        to allow a fast block-copy of the n×n old matrix, and the result is
-        then permuted into alphabetical order:
-
-          step 1 — build in insertion order (cheap block copy):
-                    existing (n)   new (k)
-          existing [ ─── copy ─── | right  ]   n × k new entries computed
-          new      [    bottom block        ]   k × (n+k) new entries computed
-
-          step 2 — permute rows/columns to alphabetical order.
-
-        Total pattern calls: k(2n + k)  vs  (n+k)² for a full rebuild.
-        Words already in the vocabulary are silently ignored (idempotent).
-        """
-        existing_idx = self._dist._word_to_idx
-        added = [w for w in new_words if w not in existing_idx]
-        if not added:
-            return self
-
-        # Build in "existing first, new last" order for block-copy efficiency.
-        words_unsorted = self._dist.words + added
-        n_old = len(self._dist)
-        n_total = len(words_unsorted)
-
-        extended = np.empty((n_total, n_total), dtype=np.uint8)
-        extended[:n_old, :n_old] = self._matrix
-
-        # right block: existing words as guesses vs. new words
-        for i, g in enumerate(self._dist.words):
-            for j, a in enumerate(added):
-                extended[i, n_old + j] = compute_pattern(g, a)
-
-        # bottom block: new words as guesses vs. ALL words
-        for i, g in enumerate(tqdm(added, desc="Extending matrix", unit="word")):
-            for j, a in enumerate(words_unsorted):
-                extended[n_old + i, j] = compute_pattern(g, a)
-
-        # WordDistribution sorts alphabetically, so permute rows/columns to match.
-        unsorted_idx = {w: i for i, w in enumerate(words_unsorted)}
-        words_sorted = sorted(words_unsorted)
-        perm = np.array([unsorted_idx[w] for w in words_sorted])
-        extended = extended[np.ix_(perm, perm)]
-
-        new_dist = WordDistribution(words_sorted)
-        result = PatternMatrix._from_parts(new_dist, extended, self._cache_dir)
-        np.save(result._cache_path(), extended)
-        return result
 
 
 if __name__ == "__main__":
