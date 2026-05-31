@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import numpy as np
 from wordfreq import get_frequency_dict, zipf_frequency
-from typing import List, Optional
 
 
 class WordDistribution:
@@ -78,7 +77,7 @@ class WordDistribution:
         # cache hash — is identical regardless of how the distribution was created
         # (wordfreq frequency order, list insertion order, etc.).
         self._probs: dict[str, float] = {w: raw[w] / total for w in sorted(raw)}
-        self._words: List[str] = list(self._probs)
+        self._words: list[str] = list(self._probs)
         self._word_to_idx: dict[str, int] = {w: i for i, w in enumerate(self._words)}
         self._weights: np.ndarray = np.array(list(self._probs.values()), dtype=np.float64)
 
@@ -87,16 +86,18 @@ class WordDistribution:
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_wordfreq(cls, min_zipf: float = MIN_ZIPF) -> WordDistribution:
+    def from_wordfreq(cls, min_zipf: float = MIN_ZIPF, lang: str = 'en') -> WordDistribution:
         """
-        Load all 5-letter English words with Zipf score >= min_zipf from
-        the wordfreq corpus, weighted by corpus frequency.
+        Load all 5-letter words with Zipf score >= min_zipf from the wordfreq
+        corpus for the given language, weighted by corpus frequency.
+
+        lang: BCP 47 language code supported by wordfreq (e.g. 'en', 'de').
 
         Note: the word universe is wordfreq's "large" wordlist. Words not
-        in that list (e.g. some valid Scrabble words) will not appear even
-        if zipf_frequency() would return a qualifying score for them.
+        in that list will not appear even if zipf_frequency() would return a
+        qualifying score for them.
         """
-        freq_dict = get_frequency_dict("en", wordlist="large")
+        freq_dict = get_frequency_dict(lang, wordlist="large")
         threshold = 10 ** (-7 + min_zipf)
         return cls({
             w: f
@@ -105,9 +106,9 @@ class WordDistribution:
         })
 
     @classmethod
-    def default(cls) -> WordDistribution:
-        """Load the default vocabulary (MIN_ZIPF = 1.0, ~3 527 words)."""
-        return cls.from_wordfreq()
+    def default(cls, lang: str = 'en') -> WordDistribution:
+        """Load the default vocabulary (MIN_ZIPF = 1.0) for the given language."""
+        return cls.from_wordfreq(lang=lang)
 
     # ------------------------------------------------------------------
     # Lookup  (O(1))
@@ -125,7 +126,7 @@ class WordDistribution:
     # Sampling
     # ------------------------------------------------------------------
 
-    def sample(self, rng: Optional[np.random.Generator | int] = None) -> str:
+    def sample(self, rng: np.random.Generator | int | None = None) -> str:
         """
         Draw a single word according to the distribution.
 
@@ -146,7 +147,7 @@ class WordDistribution:
     # ------------------------------------------------------------------
 
     @property
-    def words(self) -> List[str]:
+    def words(self) -> list[str]:
         """Ordered list of words in this distribution."""
         return self._words
 

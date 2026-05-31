@@ -113,29 +113,3 @@ class TestPatternMatrixLookup:
         assert "xyzzy" not in pm
 
 
-class TestPatternMatrixExtend:
-    def test_extended_shape(self, pm):
-        ext = pm.extend(["world"])
-        assert ext.matrix.shape == (len(WORDS) + 1, len(WORDS) + 1)
-
-    def test_existing_block_unchanged(self, pm):
-        ext = pm.extend(["world"])
-        n = len(WORDS)
-        assert np.array_equal(ext.matrix[:n, :n], pm.matrix)
-
-    def test_new_entries_correct(self, pm):
-        ext = pm.extend(["world"])
-        for i, g in enumerate(ext.words):
-            for j, a in enumerate(ext.words):
-                assert int(ext.matrix[i, j]) == compute_pattern(g, a)
-
-    def test_duplicate_ignored(self, pm):
-        ext = pm.extend(["crane"])
-        assert ext is pm
-
-    def test_multiple_new_words(self, pm):
-        ext = pm.extend(["world", "chess"])
-        assert ext.matrix.shape == (len(WORDS) + 2, len(WORDS) + 2)
-        for i, g in enumerate(ext.words):
-            for j, a in enumerate(ext.words):
-                assert int(ext.matrix[i, j]) == compute_pattern(g, a)

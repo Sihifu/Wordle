@@ -25,7 +25,7 @@ import numpy as np
 from rich.console import Console
 
 from .pattern import PatternMatrix
-from .state import GameState
+from .game import GameState
 
 if TYPE_CHECKING:
     from .game import WordleGame
@@ -145,10 +145,6 @@ class Policy(ABC):
         str — a valid guess word.
         """
         ...
-
-    def reset(self) -> None:
-        """Called at the start of each new game (override if stateful)."""
-        pass
 
 
 # ---------------------------------------------------------------------------
